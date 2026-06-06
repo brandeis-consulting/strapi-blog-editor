@@ -2,12 +2,8 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { authRouter } from "./routes/auth";
 import { postsRouter } from "./routes/posts";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = path.resolve(__dirname, "..", "dist");
@@ -29,7 +25,9 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
 
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.get("/healthz", (_req, res) => {
+  res.json({ ok: true });
+});
 app.use("/api/auth", authRouter);
 app.use("/api/posts", postsRouter);
 
