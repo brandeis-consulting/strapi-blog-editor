@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-electron
+dist-server
+dist-build
+.env
+.env.*
+.git
+.gitignore
+.vscode
+.idea
+*.log
+README.md
+.DS_Store
+.vite

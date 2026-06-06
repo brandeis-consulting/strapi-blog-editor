@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<svg viewBox="0 0 188 233" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+ <defs>
+  <clipPath id="clip0">
+   <rect height="250" id="svg_1" width="200" x="0" y="0"/>
+  </clipPath>
+ </defs>
+ <g class="layer">
+  <title>Layer 1</title>
+  <path d="m2,232l0,-221l130,72.34l-130,148.66z" fill="#E46C0A" fill-rule="evenodd" id="svg_5"/>
+  <path d="m186,1l0,221l-130,-72.34l130,-148.66z" fill="#0C3C60" fill-rule="evenodd" id="svg_4"/>
+  <path d="m56.419266,149.569097l12.16249,6.586383l63.334692,-72.858271l-12.16249,-6.586383l-63.334692,72.858271z" fill="#785435" fill-rule="evenodd" id="svg_6"/>
+ </g>
+</svg>

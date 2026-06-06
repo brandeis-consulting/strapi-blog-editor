@@ -1,0 +1,159 @@
+$font-stack:  "Arial";
+$font-size: 17px;
+
+@font-face {
+    font-family: 'Noto Color Emoji';
+    src: url('../assets/Noto\ Color\ Emoji.ttf');
+}
+
+@font-face {
+    font-family: 'Open Sans';
+    src: url('../assets/OpenSans.ttf');
+}
+
+.noto-emoji, .emoji
+{ 
+    font-family: 'Noto Color Emoji', Arial, Helvetica, sans-serif;
+}
+
+$page-width: 1200px;
+$sidebar-width: 300px;
+$max-width-small: 700px;
+$max-width-medium: 1024px;
+
+
+/***********************************************
+* COLORS
+*********************************************** */
+
+/*Color Palette*/
+$color-bc-blue-light : #06508A;
+$color-bc-blue-lighter: #074574;
+$color-bc-blue: #0C3C60;
+$color-bc-blue-darker: #0B2A42;
+$color-bc-blue-dark: #102636;
+
+$color-bc-red-light : #D60B00;
+$color-bc-red-lighter: #B50900;
+$color-bc-red: #95110A;
+$color-bc-red-darker: #67100B;
+$color-bc-red-dark: #541815;
+
+$color-bc-green-light : #00A614;
+$color-bc-green-lighter: #008C11;
+$color-bc-green: #077415;
+$color-bc-green-darker: #095011;
+$color-bc-green-dark: #104216;
+
+$color-bc-violet-light : #69048E;
+$color-bc-violet-lighter: #5A0578;
+$color-bc-violet: #4C0A63;
+$color-bc-violet-darker: #350A44;
+$color-bc-violet-dark: #2D1038;
+
+$color-bc-orange-light : #FF7400;
+$color-bc-orange-lighter: #FF7400;
+$color-bc-orange: #E46D0A;
+$color-bc-orange-darker: #B86622;
+$color-bc-orange-dark: #92592B;
+
+$color-bc-yellow-light : #FFEF00;
+$color-bc-yellow-lighter: #FFEF00;
+$color-bc-yellow: #E4D70A;
+$color-bc-yellow-darker: #B8AF22;
+$color-bc-yellow-dark: #928B2B;
+
+/*Semantic Colors */
+$text-color: #444;
+$color-code-background: #e1e1e2;
+$color-background: #fdfdff;
+$color-code-border: #d9d9da;
+$color-tile-shadow: #eee;
+$color-menu: $color-bc-blue-light;
+$color-menu-light: color-mix(in srgb, $color-menu,transparent 65%);
+
+@mixin tileGrid{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+
+    @media only screen and (max-width: $max-width-small){
+        gap: 10px;
+      }
+}
+
+$perc: 15%;
+$secondColor: rgba(0, 0, 0, 0.04);
+@mixin hoveringTile($color) {
+/* box-shadow:     1px 2px 2px color-mix(in srgb,  rgba(211, 211, 211, 0.055),  $color 95%),
+     2px 4px 4px color-mix(in srgb, rgba(211, 211, 211, 0.055),  $color 95%),
+     3px 6px 6px color-mix(in srgb, rgba(211, 211, 211, 0.055),  $color 95%),
+     6px 12px 12px color-mix(in srgb, rgba(211, 211, 211, 0.055),  $color 95%),
+     -3px -6px 12px color-mix(in srgb, rgba(211, 211, 211, 0.055),  $color 95%);
+     /*https://www.joshwcomeau.com/css/designing-shadows/  */
+     box-shadow:
+     1px 1px 2px color-mix(in srgb, $secondColor,  $color $perc),
+     1px 1px 4px color-mix(in srgb, $secondColor,  $color $perc),
+     1px 2px 8px color-mix(in srgb, $secondColor,  $color $perc),
+     2px 4px 16px color-mix(in srgb, $secondColor,  $color $perc),
+     4px 8px 32px color-mix(in srgb, $secondColor,  $color $perc),
+     8px 16px 64px color-mix(in srgb, $secondColor,  $color $perc);
+     
+     border-radius: 20px;  
+     background: color-mix(in srgb, white,  $color 99.5%);
+  //   background-image: url("../images/PaperBackground.jpg") ;
+   //  background:  url("../images/PaperBackground.jpg");
+     
+   }
+
+   @mixin hoveringTileMouseOver($color) {
+
+         /*https://www.joshwcomeau.com/css/designing-shadows/  */
+         box-shadow:
+         1px 1px 2px color-mix(in srgb, $secondColor,  $color $perc),
+         1px 1px 4px color-mix(in srgb, $secondColor,  $color $perc),
+         1px 2px 8px color-mix(in srgb, $secondColor,  $color $perc)/*,
+         2px 4px 16px color-mix(in srgb, $secondColor,  $color $perc)*/
+         ;
+         transform: scale(0.993); 
+         transition-duration: 100ms;
+         border-radius: 20px;  
+         background: white; /*color-mix(in srgb, white,  $color 98%);*/
+        // background-image: url("../images/PaperBackground.jpg");
+         
+       }
+
+@mixin pageWidthCentered{
+    max-width: $page-width;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@mixin  columnLayout {
+    display: flex;
+    flex-direction: row;
+    flex-wrap:wrap;
+    gap: 20px;
+}
+
+
+@media only screen and (max-width: $max-width-small){
+    .hide-on-mobile{
+      display: none;
+    }
+    
+  }
+
+  
+
+@keyframes fadeInModal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes popInModal {
+    from { scale: 0; rotate: -45deg; }
+    to { scale: 1; rotate: 0deg; }
+}

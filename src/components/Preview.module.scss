@@ -1,0 +1,25 @@
+.previewRoot {
+  height: 100%;
+  overflow-y: auto;
+  background: linear-gradient(90deg, #FAEFE5, white 20%, white 80%, #E3E5EE);
+  padding: 1rem;
+  box-sizing: border-box;
+
+  :global(mark.diff-added) {
+    background-color: rgba(228, 108, 10, 0.22);
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(228, 108, 10, 0.35);
+  }
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7693;
+  font-size: 1rem;
+  background: #f5f6fa;
+}

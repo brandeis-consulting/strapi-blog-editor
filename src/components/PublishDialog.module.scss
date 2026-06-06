@@ -1,0 +1,116 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  width: min(900px, 92vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1rem 4rem rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+
+  header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #e2e4ec;
+
+    h2 { margin: 0; font-size: 1.1rem; color: #0C3C60; }
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #e2e4ec;
+    background: #f7f8fb;
+
+    button {
+      padding: 0.5rem 1rem;
+      border-radius: 0.4rem;
+      border: 1px solid #cdd0db;
+      background: white;
+      cursor: pointer;
+      font-size: 0.9rem;
+
+      &:disabled { opacity: 0.5; cursor: default; }
+    }
+  }
+}
+
+.subtitle {
+  margin: 0.25rem 0 0;
+  color: #606060;
+  font-size: 0.85rem;
+}
+
+.primary {
+  background: #E46C0A !important;
+  color: white;
+  border-color: #E46C0A !important;
+
+  &:hover:not(:disabled) { background: #d35f00 !important; }
+}
+
+.secondary {
+  background: #0C3C60 !important;
+  color: white;
+  border-color: #0C3C60 !important;
+
+  &:hover:not(:disabled) { background: #0a3252 !important; }
+}
+
+.stats {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.85rem;
+  align-items: center;
+  background: #f7f8fb;
+  border-bottom: 1px solid #e2e4ec;
+}
+
+.added { color: #197a1f; font-weight: 600; font-variant-numeric: tabular-nums; }
+.removed { color: #9c2a2a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.note { color: #606060; }
+
+.idleHint {
+  padding: 1.5rem;
+  color: #404040;
+  font-size: 0.9rem;
+  background: #fafbfc;
+  border-bottom: 1px solid #e2e4ec;
+}
+
+.diff {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 1rem 1.5rem;
+  background: #fafbfc;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.lineAdded { background: #d8f3dc; color: #14532d; display: block; }
+.lineRemoved { background: #fde0e0; color: #7f1d1d; display: block; }
+.lineCtx { color: #4a4a4a; display: block; }
+
+.error {
+  margin: 0 1.5rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #fde0e0;
+  color: #7f1d1d;
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+}
