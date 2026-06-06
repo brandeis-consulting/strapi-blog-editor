@@ -38,6 +38,15 @@ export interface NewPostInput {
   Language?: string;
 }
 
+export interface UploadedFile {
+  id: number;
+  name: string;
+  url: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
 interface ListEnvelope {
   results: PostDetail[];
   pagination: { page: number; pageSize: number; pageCount: number; total: number };
@@ -145,5 +154,38 @@ export class StrapiClient {
       input,
     );
     return result.data;
+  }
+
+  /**
+   * Upload a single image to Strapi's media library.
+   * Uses /upload (works with Admin-JWT) and returns an absolute URL.
+   */
+  async uploadImage(
+    data: Uint8Array,
+    filename: string,
+    mimetype: string,
+  ): Promise<UploadedFile> {
+    const form = new FormData();
+    const blob = new Blob([data as BlobPart], { type: mimetype });
+    form.append("files", blob, filename);
+
+    const res = await fetch(`${this.baseUrl}/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.token}` },
+      body: form,
+    });
+    if (res.status === 401) {
+      throw new Error("AUTH_EXPIRED:Sitzung abgelaufen — bitte neu anmelden.");
+    }
+    if (!res.ok) {
+      throw new Error(`Upload fehlgeschlagen: ${res.status} ${await res.text()}`);
+    }
+    const files = (await res.json()) as UploadedFile[];
+    if (!files.length) throw new Error("Upload-Antwort war leer.");
+    const f = files[0];
+    return {
+      ...f,
+      url: f.url.startsWith("http") ? f.url : `${this.baseUrl}${f.url}`,
+    };
   }
 }

@@ -1,11 +1,13 @@
 # Architektur, Entscheidungen und Lessons Learned
 
-Dieses Dokument richtet sich an Maintainer, die das Projekt übernehmen oder weiterentwickeln. Es beantwortet drei Fragen:
+Dieses Dokument richtet sich an Maintainer, die das Projekt übernehmen oder weiterentwickeln. Es beantwortet vier Fragen:
 
 1. **Was sollte das Tool können?** → [Anforderungen](#anforderungen)
 2. **Wie ist es gebaut?** → [Architektur](#architektur)
 3. **Warum wurde es so gebaut?** → [Architekturentscheidungen](#architekturentscheidungen-adrs)
 4. **Was würde mich beim Weiterarbeiten überraschen?** → [Lessons Learned](#lessons-learned)
+
+> **Historischer Hinweis:** Das Projekt war ursprünglich als Electron-Desktop-App konzipiert und wurde parallel als Web-Service entwickelt. Mit Version 0.2.0 wurde die Electron-Variante entfernt (siehe [ADR-001](#adr-001-electron-variante-wieder-entfernt)). Lessons Learned aus der Electron-Phase bleiben dokumentiert, da sie für ähnliche Entscheidungen in Zukunft hilfreich sein können.
 
 ---
 
@@ -37,16 +39,16 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - **Save vs. Publish trennen**: Nur Draft oder Draft + Live veröffentlichen
 - **Diff-Dialog** vor jedem Save zeigt zeilenweise +/− Änderungen
 - **Veröffentlichen ohne Änderungen** möglich (für nachträgliches Publish eines gespeicherten Drafts)
+- **Bilder aus Zwischenablage** per `Strg+V` in Strapi hochladen und Markdown-Link einfügen
 
 ### Distribution
-- **Electron-Desktop-App** mit NSIS-Installer + portabler `.exe` für Windows
-- **Web-Variante** als Docker-Container für Portainer-Deployment, gleiche Codebase
-- Beide Varianten parallel pflegbar
+- **Web-Service** als Docker-Container für Portainer-Deployment
+- Reverse-Proxy (Caddy) für HTTPS
 
 ### Auth & Sicherheit
 - Login mit **Strapi-Admin-Account** (jeder Kollege hat ohnehin einen für das Admin-Panel)
 - Identitäts-Tracking pro Kollege (kein shared Token)
-- JWT verschlüsselt persistieren (Electron: `safeStorage`, Web: `HttpOnly`-Cookie)
+- JWT im Server-`HttpOnly`-Cookie (XSS-sicher)
 - Bei Session-Ablauf automatisch zurück zum Login
 
 ---
@@ -60,30 +62,26 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 │  src/                                                           │
 │  ├── App.tsx              Auth-Gate                            │
 │  ├── AppShell.tsx         Hauptlayout, States, Handlers        │
-│  ├── api/                 Strapi-Client (mode-aware)           │
+│  ├── api/                 Strapi-Client (fetch → /api/*)       │
 │  ├── components/          Login, PostList, Editor, Preview, …  │
 │  ├── hooks/               useAuth, usePosts, useScrollSync, …  │
 │  ├── render/              react-markdown-Pipeline aus Gatsby   │
 │  └── styles/gatsby/       SCSS 1:1 aus Gatsby-Repo kopiert     │
-│                                                                 │
-│  Mode-Switch via __APP_MODE__ (define im Vite-Build):           │
-│    "electron"  → window.strapi / window.auth (IPC)             │
-│    "web"       → fetch("/api/...") mit credentials: "include"  │
 └────────────────────────────────────────────────────────────────┘
-              │                                  │
-              ▼ IPC                              ▼ HTTP (Cookie)
-┌──────────────────────────────┐   ┌──────────────────────────────┐
-│  Electron Main Process       │   │  Express Server              │
-│  electron/                   │   │  server/                     │
-│  ├── main.ts (IPC handlers)  │   │  ├── index.ts                │
-│  ├── preload.ts (bridge)     │   │  ├── routes/auth.ts          │
-│  ├── auth.ts (safeStorage)   │   │  ├── routes/posts.ts         │
-│  └── strapi.ts (REST client) │   │  ├── middleware/auth.ts      │
-│                              │   │  └── lib/strapi.ts (kopiert) │
-└──────────────────────────────┘   └──────────────────────────────┘
-              │                                  │
-              └─────────────────┬────────────────┘
-                                ▼
+                              │
+                              ▼ HTTP (Cookie)
+┌────────────────────────────────────────────────────────────────┐
+│  Express Server (Node 20 + TypeScript → CommonJS)              │
+│  server/                                                        │
+│  ├── index.ts              Static files + Routing + Helmet     │
+│  ├── routes/auth.ts        /api/auth/login, /logout, /me       │
+│  ├── routes/posts.ts       /api/posts/*  (proxiet zu Strapi)   │
+│  ├── routes/upload.ts      /api/upload/image (multipart)       │
+│  ├── middleware/auth.ts    JWT-Cookie-Reader                   │
+│  └── lib/strapi.ts         StrapiClient (REST)                 │
+└────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ HTTPS (Bearer JWT)
               ┌────────────────────────────────────────┐
               │  Strapi v5  (cms.brandeis.de)         │
               │                                        │
@@ -93,24 +91,41 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
               │       types/api::ba-blog-post...      │
               │  PUT  .../<documentId>                │
               │  POST .../<documentId>/actions/publish│
-              │  POST .../create                      │
+              │  POST /upload                         │
               └────────────────────────────────────────┘
 ```
 
-### Modi und Build-Targets
+### Deployment-Topologie
 
-| Modus | Build-Command | Auth-Persistenz | Distribution |
-|---|---|---|---|
-| Electron Dev | `npm run dev` | `safeStorage` (DPAPI) | – |
-| Electron Build | `npm run dist` | – | NSIS + portable `.exe` |
-| Web Dev | `npm run dev:web` | `HttpOnly`-Cookie | – |
-| Web Build | `npm run build:web` | – | – |
-| Web Production | `docker build .` | `HttpOnly`-Cookie + `Secure` | Docker-Container |
+```
+Internet
+   │
+   ▼ :80, :443
+┌──────────────────────────────────┐
+│  Caddy (Reverse Proxy)            │
+│  - automatisches Let's Encrypt   │
+│  - reverse_proxy → blog-editor   │
+└──────────────────────────────────┘
+   │ (Docker-Netzwerk "proxy")
+   ▼ :3000
+┌──────────────────────────────────┐
+│  blog-editor Container            │
+│  - Express + Static Files         │
+│  - Healthcheck /healthz           │
+└──────────────────────────────────┘
+   │
+   ▼ HTTPS
+   Strapi CMS
+```
 
-### Gemeinsamer Code
+### Build- und Run-Modi
 
-- `electron/strapi.ts` und `server/lib/strapi.ts` enthalten **dieselbe StrapiClient-Klasse**. Aktuell durch File-Copy synchron gehalten — siehe [ADR-007](#adr-007-strapi-client-dupliziert-statt-zentralisiert).
-- Frontend (`src/`) wird in beiden Modi unverändert verwendet.
+| Modus      | Befehl              | Auth-Persistenz                  | Ergebnis                          |
+| ---------- | ------------------- | -------------------------------- | --------------------------------- |
+| Dev        | `npm run dev`       | `HttpOnly`-Cookie (ohne Secure)  | Vite 5173 + Express 3000          |
+| Build      | `npm run build`     | –                                | `dist/` (Renderer) + `dist-server/` |
+| Production | `npm start`         | `HttpOnly`-Cookie + `Secure`     | Single Node-Prozess auf 3000      |
+| Docker     | `docker compose up` | wie Production                   | Container hört auf 3000           |
 
 ### Datenfluss beim Speichern
 
@@ -118,9 +133,18 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 2. `Strg+S` oder Button öffnet `PublishDialog` mit Zeilen-Diff
 3. User wählt „Nur Entwurf speichern" oder „Speichern & veröffentlichen"
 4. **Save-Logik:**
-   - Wenn dirty: `PUT /content-manager/collection-types/<uid>/<id>` mit `{ Content }`
-   - Wenn Modus=publish: zusätzlich `POST .../actions/publish`
+   - Wenn dirty: `PUT /api/posts/<id>` → Server → Strapi `/content-manager/collection-types/<uid>/<id>` mit `{ Content }`
+   - Wenn Modus=publish: zusätzlich `POST /api/posts/<id>/publish` → Strapi `.../actions/publish`
    - Response (PostDetail) ersetzt den Buffer-Eintrag, dirty wird false
+
+### Datenfluss beim Bild-Paste
+
+1. CodeMirror-Editor (`src/components/Editor.tsx`) hat einen `onPaste`-Handler auf dem Container
+2. Bei `image/*` in `clipboardData.items`:
+   - sofortige Insertion eines Platzhalters `![Bild wird hochgeladen … (xyz123)]()` an der Cursor-Position
+   - Upload im Hintergrund: `POST /api/upload/image` multipart → Server proxiet via `StrapiClient.uploadImage` zu `POST <strapi>/upload`
+   - Bei Erfolg: Platzhalter wird durch `![filename](absolute-url)` ersetzt (auch wenn der User in der Zwischenzeit weitergetippt hat — Suche per `doc.indexOf(placeholder)`)
+   - Bei Fehler: Platzhalter wird durch `![Upload fehlgeschlagen: …]()` ersetzt
 
 ### Buffer-System
 
@@ -129,25 +153,32 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Cache: bereits geladene Posts werden nicht erneut vom Server geholt
 - `dirtyIds = Set<id>` wird daraus per `useMemo` abgeleitet
 
-Buffer leben nur im Arbeitsspeicher. App-Restart leert sie — bewusst, siehe [ADR-005](#adr-005-buffer-nur-im-memory-keine-localstorage-persistenz).
+Buffer leben nur im Arbeitsspeicher des Browsers. Tab-Schließen leert sie — bewusst, siehe [ADR-005](#adr-005-buffer-nur-im-memory-keine-localstorage-persistenz).
 
 ---
 
 ## Architekturentscheidungen (ADRs)
 
-### ADR-001: Hybrid Electron + Web aus einer Codebase
+### ADR-001: Electron-Variante wieder entfernt
 
-**Status:** akzeptiert
+**Status:** akzeptiert (ersetzt ursprüngliche Hybrid-Entscheidung)
 
-**Kontext:** Erst war Electron das Ziel, später kam Docker dazu.
+**Kontext:** Initial wurden Electron- und Web-Variante parallel gepflegt. Die Hybrid-Architektur erlaubte beides, brachte aber Komplexität: Mode-Switches im Frontend (`__APP_MODE__`), duplizierter Strapi-Client (`electron/strapi.ts` + `server/lib/strapi.ts`), zwei Build-Pipelines, eigene Auth-Pfade (`safeStorage` vs. Cookie), Windows-spezifische Build-Probleme.
 
-**Entscheidung:** Beide Varianten parallel pflegen. `__APP_MODE__` ist ein Vite-`define` und wird zur Build-Zeit zu `"electron"` oder `"web"` ersetzt. Im Frontend gibt es genau zwei kleine Switches in `src/api/strapi.ts` und `src/api/auth.ts`.
+Die Praxis zeigte: Kollegen nutzen die Web-Variante. Die Electron-Variante hätte eigene Wartung verlangt (Auto-Updates, Code-Signing, Windows-Build-Server) ohne klaren Mehrwert über den Browser hinaus.
+
+**Entscheidung:** Mit Version 0.2.0 alle Electron-Bestandteile entfernt:
+- `electron/` Verzeichnis gelöscht
+- Dependencies `electron`, `electron-builder`, `vite-plugin-electron`, `vite-plugin-electron-renderer` entfernt
+- Mode-Switch (`__APP_MODE__`) aus dem Frontend entfernt
+- Type-Definitionen von `electron/strapi.ts` nach `src/types.ts` verschoben
+- Build-Scripts (`dist`, `dist:portable`, `dist:installer`) entfernt
 
 **Konsequenzen:**
-- ✓ Frontend-Code ist identisch in beiden Varianten
-- ✓ Backend-Logik (StrapiClient) wird einmal geschrieben, in beide Wrapper integriert
-- ✗ Doppelte Code-Pfade bei `dist` und `build:web`
-- ✗ Wer Tests schreibt, muss beide Modi abdecken
+- ✓ Kleinere Codebase, einfacheres Onboarding
+- ✓ Eine einzige Auth-Strategie (Cookie)
+- ✓ Keine Windows-Code-Signing-Probleme mehr
+- ✗ Wer offline arbeiten will, kann das nicht mehr — Web-Service braucht Verbindung zum Server
 
 ### ADR-002: Strapi-Admin-Login statt /api/auth/local
 
@@ -172,11 +203,12 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 
 **Kontext:** Erste Implementierung nutzte `POST /graphql`. Nach Umstellung auf Admin-JWT lieferte GraphQL aber `Forbidden access`. Strapi unterscheidet die APIs:
 
-| API | Auth | Verwendung |
-|---|---|---|
-| `/api/...` | API-Token, End-User-JWT | Public/Frontend (Gatsby) |
-| `/graphql` | API-Token, End-User-JWT | Public/Frontend (Gatsby) |
-| `/content-manager/...` | Admin-JWT | Strapi-Admin-Panel |
+| API                       | Auth                        | Verwendung                  |
+| ------------------------- | --------------------------- | --------------------------- |
+| `/api/...`                | API-Token, End-User-JWT     | Public/Frontend (Gatsby)    |
+| `/graphql`                | API-Token, End-User-JWT     | Public/Frontend (Gatsby)    |
+| `/content-manager/...`    | Admin-JWT                   | Strapi-Admin-Panel          |
+| `/upload`                 | beides                      | Media Library               |
 
 **Entscheidung:** `/content-manager/collection-types/api::ba-blog-post.ba-blog-post` benutzen. Funktioniert mit Admin-JWT.
 
@@ -202,22 +234,23 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 - ✓ Visuelle Konsistenz
 - ✓ Schnell implementiert
 - ✗ **Drift-Risiko**: ändert sich im Gatsby-Repo etwas, merkt der Editor nichts
-- ✗ Sync ist manuell (siehe `scripts/sync-gatsby.mjs` — falls noch nicht angelegt)
+- ✗ Sync ist manuell (Sync-Script ist Roadmap-Idee, nicht implementiert)
 
 ### ADR-005: Buffer nur im Memory, keine localStorage-Persistenz
 
 **Status:** akzeptiert
 
-**Kontext:** Der Buffer (`Map<documentId, { detail, draft }>`) hält ungespeicherte Änderungen. Beim App-Restart gehen sie verloren.
+**Kontext:** Der Buffer (`Map<documentId, { detail, draft }>`) hält ungespeicherte Änderungen. Beim Tab-Schließen gehen sie verloren.
 
 **Entscheidung:** Bewusst keine `localStorage`-/`sessionStorage`-Persistenz.
 
 **Begründung:**
 - Drafts, die Tage oder Wochen alt sind, verwirren mehr als sie helfen
 - Strapi v5 hat ohnehin draft & publish — User soll explizit speichern
-- Risiko von „verlorenen" Drafts beim App-Switch ist gering, weil der User in der Regel innerhalb einer Session arbeitet
+- Risiko von „verlorenen" Drafts beim Tab-Switch ist gering, weil der User in der Regel innerhalb einer Session arbeitet
+- Bei Multi-User-Editing könnten persistente Buffers fremde Änderungen überschreiben
 
-**Bei Änderung:** Wenn Persistenz gewünscht, in `useAuth`-Hook (für Web mit Cookie) oder direkt in `AppShell` ergänzen. Achtung: bei Strapi-seitigen Updates am Original-Content sollten persistente Buffers invalidiert werden — sonst überschreibt der User unbeabsichtigt fremde Änderungen.
+**Bei Änderung:** Wenn Persistenz gewünscht, in `AppShell` ergänzen. Bei Strapi-seitigen Updates am Original-Content sollten persistente Buffers invalidiert werden.
 
 ### ADR-006: react-resizable-panels v2, nicht v4
 
@@ -229,23 +262,24 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 
 **Bei Update:** v2 ist Maintenance-Mode. v3 ist API-kompatibel. v4 würde Refactor des `PanelGroup`-Setups bedeuten — nicht ohne Grund machen.
 
-### ADR-007: Strapi-Client dupliziert statt zentralisiert
-
-**Status:** akzeptiert mit Folgekosten
-
-**Kontext:** `electron/strapi.ts` und `server/lib/strapi.ts` enthalten identischen Code.
-
-**Entscheidung:** Vorerst File-Copy. Eine zentrale `shared/strapi.ts` würde:
-- vite-plugin-electron-Bundling komplizieren
-- tsconfig-Pfade in beiden Konsumenten anpassen
-
-**Bei späterem Refactor:** `shared/` Ordner, beide tsconfig.* erweitern, ggf. mit pnpm/turbo Workspaces.
-
-### ADR-008: JWT via HttpOnly-Cookie (Web), nicht localStorage
+### ADR-007: Express-Server als CommonJS, nicht ESM
 
 **Status:** akzeptiert
 
-**Kontext:** Web-Variante braucht einen Persistenz-Mechanismus für das JWT.
+**Kontext:** Initial wurde `tsconfig.server.json` mit `module: "ESNext"` gebaut. Node 20 verlangt aber bei ESM **vollständige `.js`-Endungen in Imports** (`./routes/auth.js`). `tsc` schreibt die nicht automatisch in den Output, daher `ERR_MODULE_NOT_FOUND` im Docker-Container.
+
+**Entscheidung:** Server als CommonJS bauen (`module: "CommonJS"`, `moduleResolution: "Node"`). Frontend bleibt ESM (vite-Bundler kümmert sich).
+
+**Konsequenzen:**
+- ✓ Keine `.js`-Endung-Akrobatik nötig
+- ✓ `__dirname` direkt verfügbar (kein `fileURLToPath`-Workaround)
+- ✗ Bei `fetch`/`Blob`/`FormData` (Web-API in Node 20+) braucht tsconfig zusätzlich `"DOM"` in der `lib`-Liste
+
+### ADR-008: JWT via HttpOnly-Cookie
+
+**Status:** akzeptiert
+
+**Kontext:** Frontend braucht einen Persistenz-Mechanismus für das JWT.
 
 **Entscheidung:** Server setzt JWT in `HttpOnly`-Cookie mit `SameSite=Strict`, in Production zusätzlich `Secure`.
 
@@ -254,17 +288,9 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 - Automatisch bei jedem Request mitgesendet
 - Logout = Cookie löschen, kein Frontend-State-Management
 
-### ADR-009: electron-builder 24.13.3, nicht 26
+**Bei Änderung:** `localStorage`-JWT wäre einfacher zu debuggen, aber XSS-anfällig. CSRF-Schutz hätten wir bei `Bearer`-Auth nicht zu denken — Cookie-Auth braucht `SameSite=Strict` (haben wir).
 
-**Status:** akzeptiert als Workaround
-
-**Kontext:** electron-builder 26 hat einen bekannten Bug mit `@noble/hashes` ESM-Exports. Build crasht mit `ERR_REQUIRE_ESM`.
-
-**Entscheidung:** Pinning auf `24.13.3`.
-
-**Bei Update:** Vor einem Update auf v26.x testen, ob der Bug behoben ist (oder ob ein `overrides`-Eintrag genügt).
-
-### ADR-010: Diff-Highlight als `<mark>` im Markdown-Source
+### ADR-009: Diff-Highlight als `<mark>` im Markdown-Source
 
 **Status:** akzeptiert
 
@@ -279,6 +305,19 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 - Code-Fences werden explizit gestrippt (`stripMarksInsideCodeFences`)
 - Removed-Words werden nicht angezeigt (würde Preview-Länge verändern)
 
+### ADR-010: Image-Paste schreibt sofortigen Platzhalter
+
+**Status:** akzeptiert
+
+**Kontext:** Bilder können von Sekundenbruchteilen bis mehrere Sekunden hochzuladen brauchen. Während dieser Zeit soll der User weiterschreiben können.
+
+**Entscheidung:** Sofortiges Insert eines unique Platzhalters (`![Bild wird hochgeladen … (xyz123)]()`). Upload läuft asynchron. Bei Erfolg/Fehler wird der Platzhalter per `doc.indexOf(placeholder)` gefunden und ersetzt — funktioniert auch wenn der User in der Zwischenzeit getippt hat, weil der Platzhalter eine zufällige ID enthält.
+
+**Konsequenzen:**
+- ✓ Non-blocking UX
+- ✓ Mehrere parallele Uploads funktionieren (jeder Platzhalter ist unique)
+- ✗ Wenn der User den Platzhalter manuell löscht, landet das fertige Bild stattdessen am Dokumentende (mit Hinweis-Newline) — pragmatischer Fallback
+
 ---
 
 ## Lessons Learned
@@ -287,7 +326,7 @@ Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben ni
 
 ### Strapi-Quirks
 
-1. **Zwei User-Systeme**: Admin Users ≠ End Users. Admin-JWT funktioniert **nicht** für `/api/...` oder `/graphql`, nur für `/content-manager/...` und `/admin/...`. Wenn Login klappt aber Datenabruf nicht → vermutlich falsche API.
+1. **Zwei User-Systeme**: Admin Users ≠ End Users. Admin-JWT funktioniert **nicht** für `/api/...` oder `/graphql`, nur für `/content-manager/...`, `/admin/...` und `/upload`. Wenn Login klappt aber Datenabruf nicht → vermutlich falsche API.
 
 2. **Token-Permissions sind feingranular**: Ein API-Token mit `find` auf `ba-blog-post` reicht **nicht**, wenn der Post Relations (HeroImage, Author, Categories) hat. Diese Content-Types brauchen ebenfalls explizite Permissions, sonst `Forbidden access` für den ganzen Document-Aufruf — nicht nur für die Relation.
 
@@ -297,48 +336,59 @@ Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben ni
 
 5. **documentId statt id**: In Strapi v5 wird der externe Identifier `documentId` genannt. In GraphQL: `filters: { documentId: { eq: "..." } }`. In Content-Manager-URLs: `/content-manager/collection-types/<uid>/<documentId>`. Verwechsle das nicht mit der internen DB-`id`.
 
+6. **Strapi `/upload` mit Admin-JWT**: Funktioniert problemlos. multipart/form-data mit Feldname `files` (auch für Single-Upload). Response ist Array mit `[{ id, url, name, mime, ... }]`. URL ist relativ — manuell `baseUrl` davorhängen.
+
 ### Vite / Build-Toolchain
 
-6. **CSS-Modules brauchen `localsConvention`**: Gatsby benutzt camelCase-Lookup (`Styles.blogPost` → `.blog-post`-Klasse). Vite-Default ist beides (kebab + camel), aber inkonsistent. Wir setzen `localsConvention: "camelCaseOnly"`.
+7. **CSS-Modules brauchen `localsConvention`**: Gatsby benutzt camelCase-Lookup (`Styles.blogPost` → `.blog-post`-Klasse). Vite-Default ist beides (kebab + camel), aber inkonsistent. Wir setzen `localsConvention: "camelCaseOnly"`.
 
-7. **SCSS-Module mit `:global()`**: `@use "x" as *` und `:global(.task-list-item)` funktionieren mit dart-sass und Vite — aber Vite muss mit `api: "modern-compiler"` konfiguriert sein, sonst kommen Deprecation-Warnings.
+8. **SCSS-Module mit `:global()`**: `@use "x" as *` und `:global(.task-list-item)` funktionieren mit dart-sass und Vite — aber Vite muss mit `api: "modern-compiler"` konfiguriert sein, sonst kommen Deprecation-Warnings.
 
-8. **highlight.js-Sprachen sind CommonJS**: `module.exports = function(hljs) {…}`. Vite (ESM) kann das nicht als default-import laden. Wir haben sie zu `export default function(hljs) {…}` umgeschrieben.
+9. **highlight.js-Sprachen sind CommonJS**: `module.exports = function(hljs) {…}`. Vite (ESM) kann das nicht als default-import laden. Wir haben sie zu `export default function(hljs) {…}` umgeschrieben.
 
-9. **CodeMirror in flex-Layout scrollt nicht out-of-the-box**: Braucht `flex: 1 1 0; min-height: 0` am Wrapper UND `height: 100%` auf `.cm-editor` UND `overflow: auto` auf `.cm-scroller`. Wenn der Editor immer höher wird statt zu scrollen → fehlende `min-height: 0` in der Flex-Hierarchie.
+10. **CodeMirror in flex-Layout scrollt nicht out-of-the-box**: Braucht `flex: 1 1 0; min-height: 0` am Wrapper UND `height: 100%` auf `.cm-editor` UND `overflow: auto` auf `.cm-scroller`. Wenn der Editor immer höher wird statt zu scrollen → fehlende `min-height: 0` in der Flex-Hierarchie.
+
+### Node / Server
+
+11. **CommonJS für den Server, nicht ESM**: Node 20 ESM-Loader verlangt `.js`-Endungen in Imports — die `tsc` nicht automatisch hinzufügt. Server ist CommonJS, daher kein Suffix-Tanz, `__dirname` direkt verfügbar.
+
+12. **`DOM`-Lib in tsconfig.server.json**: Node v18+ hat `Blob`, `fetch`, `FormData` zur Runtime, aber TypeScript braucht die DOM-Types dafür. `"lib": ["ES2022", "DOM"]` in `tsconfig.server.json` löst das.
+
+13. **Multer für multipart**: Express parst keinen multipart-Body. Multer mit `memoryStorage()` ist die einfachste Lösung für moderate Datei-Größen (<15 MB). Bei großen Files (>50 MB) auf Disk-Storage oder Streams umsteigen.
 
 ### Google Drive + Entwicklung
 
-10. **`node_modules` in Google Drive bricht Vite**: Vite-Optimizer macht `rmdir` auf `.vite/deps_temp_*`, Google Drive hat das parallel locked → `EPERM`. Lösung: `cacheDir` auf `os.tmpdir()` setzen.
+14. **`node_modules` in Google Drive bricht Vite**: Vite-Optimizer macht `rmdir` auf `.vite/deps_temp_*`, Google Drive hat das parallel locked → `EPERM`. Lösung: `cacheDir` auf `os.tmpdir()` setzen.
 
-11. **Symlinks brauchen Developer-Mode auf Windows**: electron-builder lädt einen Cache mit macOS-Symlinks (für theoretisches Cross-Build). Ohne Developer-Mode oder Admin-Shell scheitert das Entpacken mit „Cannot create symbolic link". Lösung: **Settings → System → Für Entwickler → Entwicklermodus aktivieren** (einmalig, persistent).
+15. **npm-Operationen können fehlschlagen wegen Drive-Sync**: `npm uninstall` oder `npm install` schlagen gelegentlich mit Permission-Fehlern fehl, weil Drive Files lockt. Workaround: `npm install` ohne Cleanup; `node_modules/` wird beim nächsten `npm ci` sauber neu aufgebaut.
 
 ### Library-Versionen
 
-12. **react-resizable-panels v4 ist nicht v2**: Komplett andere API. Auf v2 bleiben.
+16. **react-resizable-panels v4 ist nicht v2**: Komplett andere API. Auf v2 bleiben.
 
-13. **electron-builder 26 hat `@noble/hashes`-Bug**: `ERR_REQUIRE_ESM`. Auf 24.13.3 pinnen, bis upstream gefixt.
+17. **`@uiw/react-codemirror` exposes `onCreateEditor`**: Damit kommt man an die `EditorView`-Instanz für Scroll-Sync und Paste-Handler. Kein offizieller Ref-Forward.
 
-14. **`@uiw/react-codemirror` exposes `onCreateEditor`**: Damit kommt man an die `EditorView`-Instanz für Scroll-Sync. Kein offizieller Ref-Forward.
+### Web-spezifisch
 
-### Architektur-spezifisch
+18. **`credentials: "include"` ist Pflicht**: Im fetch-Layer für alle API-Calls — sonst werden Cookies nicht mitgesendet. In Production mit Same-Origin nicht zwingend nötig, aber wir setzen es trotzdem, damit Dev-Setup (Vite 5173 → Express 3000) funktioniert.
 
-15. **`vite-plugin-electron` rebuildet Main bei jeder Änderung an `electron/**`**: Electron wird dann auto-restartet. Wenn Änderungen nicht greifen → Prozess läuft im Hintergrund weiter (siehe Windows TaskManager).
+19. **`Secure`-Cookie braucht HTTPS**: Beim Internet-Deployment ohne HTTPS scheitert der Login (Cookie kommt nicht zurück), die App zeigt aber nur „nicht angemeldet". Reverse-Proxy mit Cert ist Pflicht.
 
-16. **`safeStorage` braucht `app.whenReady()`**: Vor `app.ready` ist die OS-Verschlüsselung nicht verfügbar. Daher AuthService **nicht** im Module-Scope instantiieren, sondern erst in `createWindow` oder erst beim ersten IPC-Call.
+20. **Caddy `reverse-proxy`-Command**: Macht automatisches HTTPS, wenn `--from` einen Hostnamen (kein `:80`, kein `localhost`) bekommt. Sehr viel einfacher als ein Caddyfile-Mount via `configs:` (das hat in unserer Portainer-Version nicht funktioniert).
 
-17. **HttpOnly-Cookies in Dev-Mode (Web) brauchen `credentials: "include"` im fetch**: Sonst sendet der Browser sie nicht zurück. Im Production-Mode mit Same-Origin nicht zwingend nötig — aber wir setzen es trotzdem, damit Dev-Setup (Vite auf 5173 → Express auf 3000) auch funktioniert.
+21. **Vite-Dev-Server `proxy`-Config**: `proxy: { "/api": "http://localhost:3000" }` ist das eine Setting, das du brauchst, damit Browser auf Vite-Port 5173 die API-Calls durchreicht an den separaten Express-Prozess.
 
-18. **`Secure`-Cookie braucht HTTPS**: Beim Internet-Deployment ohne HTTPS scheitert der Login (Cookie kommt nicht zurück), die App zeigt aber nur „nicht angemeldet". Reverse-Proxy mit Cert ist Pflicht.
+### Historisch (Electron-Phase)
 
-### Strapi-Setup für den Editor
+Diese Punkte sind nur noch relevant, wenn jemand ein ähnliches Electron-Projekt aufsetzt:
 
-19. **API-Token (falls einer benutzt wird): minimaler Scope**
-   - `find` / `findOne` / `update` / `create` auf `ba-blog-post`
-   - `find` auf `ba-blog-category`, `upload`, `custom-user` (für Relations in der Preview)
-   - `actions/publish` ist Admin-API, kein API-Token nötig (war nur für die alte GraphQL-Variante relevant)
+22. **Strapi Token-File-Persistenz auf Disk ist riskant**. Wir hatten in der Electron-Variante `safeStorage` (Windows DPAPI) — verschlüsselt mit User+Machine-Bound-Key. Saubere Lösung, aber benötigt `app.whenReady()` vor erstem Aufruf.
 
-20. **Welche Felder werden bei Strapi-v5-`PUT` ignoriert?**: Beziehungen (`HeroImage`, `Author`, `ba_blog_categories`, `Links`) werden im aktuellen Code **nicht** mit-gespeichert, weil wir nur `{ Content }` senden. Editor erlaubt aktuell nur Markdown-Body-Edits. Wenn HeroImage etc. später editierbar werden soll → Strapi v5 Relations API verwenden (`HeroImage: { connect: [{ id: x }] }` o.ä.).
+23. **`vite-plugin-electron` HMR**: Rebuilt Main/Preload bei jeder Änderung an `electron/**`, startet Electron neu. Wenn Änderungen nicht greifen → alter Prozess läuft im Hintergrund (Windows TaskManager prüfen).
+
+24. **electron-builder 26 hat `@noble/hashes` ESM-Bug**: `ERR_REQUIRE_ESM`. Auf 24.13.3 pinnen, bis upstream gefixt.
+
+25. **Symlinks brauchen Developer-Mode auf Windows**: electron-builder lädt einen Cache mit macOS-Symlinks (für theoretisches Cross-Build). Ohne Developer-Mode oder Admin-Shell scheitert das Entpacken mit „Cannot create symbolic link".
 
 ---
 
@@ -346,25 +396,26 @@ Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben ni
 
 ### Wo liegt der Code für ein neues Feature?
 
-| Feature | Frontend | Backend (Electron) | Backend (Web) |
-|---|---|---|---|
-| Neue Strapi-Aktion | `src/api/strapi.ts` | `electron/strapi.ts` + IPC in `electron/main.ts` + `electron/preload.ts` | `server/lib/strapi.ts` + Route in `server/routes/posts.ts` |
-| Neue UI-Komponente | `src/components/` | – | – |
-| Neuer Auth-Endpoint | `src/api/auth.ts` | `electron/auth.ts` + IPC | `server/routes/auth.ts` |
+| Feature                  | Frontend                          | Backend                                              |
+| ------------------------ | --------------------------------- | ---------------------------------------------------- |
+| Neue Strapi-Aktion       | `src/api/strapi.ts`               | `server/lib/strapi.ts` + Route in `server/routes/`   |
+| Neue UI-Komponente       | `src/components/`                 | –                                                    |
+| Neuer Auth-Endpoint      | `src/api/auth.ts`                 | `server/routes/auth.ts`                              |
+| Neue Upload-Variante     | `src/components/Editor.tsx` o.ä.  | `server/routes/upload.ts`                            |
+| Type-Anpassung           | `src/types.ts`                    | `server/lib/strapi.ts` (in Sync halten!)             |
 
 ### Wie teste ich Änderungen?
 
-- **Type-Check**: `npx tsc --noEmit` (Frontend + Electron) und `npx tsc -p tsconfig.server.json --noEmit` (Server)
-- **Electron Dev**: `npm run dev`
-- **Web Dev**: `npm run dev:web` (Vite auf 5173, Express auf 3000)
-- **Docker lokal**: `docker build -t blog-editor . && docker run -p 8080:3000 blog-editor`
+- **Type-Check**: `npx tsc --noEmit` (Frontend) und `npx tsc -p tsconfig.server.json --noEmit` (Server)
+- **Dev**: `npm run dev` (Vite auf 5173, Express auf 3000)
+- **Docker lokal**: `docker build -t blog-editor . && docker run -p 8080:3000 -e STRAPI_URL=https://cms.brandeis.de blog-editor`
 
 ### Externe Abhängigkeiten
 
-| Service | URL | Verwendet für |
-|---|---|---|
-| Strapi CMS | `https://cms.brandeis.de` | Auth, Inhalte |
-| Gatsby Live-Site | `https://www.brandeis.de` | Wird **nicht** direkt aufgerufen, aber Vorschau soll deren Optik treffen |
+| Service         | URL                        | Verwendet für                                                                |
+| --------------- | -------------------------- | ---------------------------------------------------------------------------- |
+| Strapi CMS      | `https://cms.brandeis.de`  | Auth, Inhalte, Media-Upload                                                  |
+| Gatsby Live-Site | `https://www.brandeis.de` | Wird **nicht** direkt aufgerufen, aber Vorschau soll deren Optik treffen      |
 
 ### Gatsby-Repo
 
@@ -377,13 +428,13 @@ Pfad in der Entwicklung war `C:\Users\micro\gatsby\brandeis-academy`. Bei Style-
 - `src/highlight.js/lib/languages/{abap,cds,bdl}.js` → `src/render/highlight-langs/{abap,cds,bdl}.js`
   - Achtung: `module.exports = function(hljs)` zu `export default function(hljs)` umschreiben
 
-Ein automatisches Sync-Script ist noch nicht implementiert (siehe „Future Work" in der Roadmap).
+Ein automatisches Sync-Script ist noch nicht implementiert (siehe „Roadmap" unten).
 
 ### Roadmap-Ideen (nicht umgesetzt)
 
 - **CSS-Sync-Script** mit Drift-Detection (`scripts/sync-gatsby.mjs`)
-- **Bild-Upload aus dem Editor** (Strapi Upload API + Markdown-Insert)
-- **Auto-Updates** für Electron via `electron-updater` + GitHub Releases
-- **Kategorie-Labels** statt Slugs in der Preview (braucht zusätzliches GraphQL-Query mit Localizations)
-- **Frontmatter-Editor** für strukturierte Felder (Title, Excerpt, Author)
+- **Drag-and-Drop-Bild-Upload** aus dem Explorer (gleiche Server-Route wie Paste)
+- **Kategorie-Labels** statt Slugs in der Preview (braucht zusätzliches API-Query mit Localizations)
+- **Frontmatter-Editor** für strukturierte Felder (Title, Excerpt, Author, HeroImage)
 - **Multi-User-Awareness**: Anzeige, wenn ein Kollege denselben Post offen hat (würde Websocket + Server-State brauchen)
+- **Auto-Save** als Draft (alle 30 s, wenn dirty)

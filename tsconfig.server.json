@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -16,5 +16,5 @@
     "types": ["node"]
   },
   "include": ["server"],
-  "exclude": ["node_modules", "dist", "dist-electron", "dist-server", "dist-build", "src", "electron"]
+  "exclude": ["node_modules", "dist", "dist-server", "src"]
 }

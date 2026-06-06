@@ -4,6 +4,7 @@ import helmet from "helmet";
 import path from "node:path";
 import { authRouter } from "./routes/auth";
 import { postsRouter } from "./routes/posts";
+import { uploadRouter } from "./routes/upload";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = path.resolve(__dirname, "..", "dist");
@@ -30,6 +31,7 @@ app.get("/healthz", (_req, res) => {
 });
 app.use("/api/auth", authRouter);
 app.use("/api/posts", postsRouter);
+app.use("/api/upload", uploadRouter);
 
 app.use(express.static(STATIC_DIR));
 app.get(/^(?!\/api\/).*/, (_req, res) => {

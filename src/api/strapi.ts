@@ -1,7 +1,9 @@
-import type { PostDetail, PostSummary } from "../types";
-import type { NewPostInput } from "../../electron/strapi";
-
-declare const __APP_MODE__: "web" | "electron";
+import type {
+  NewPostInput,
+  PostDetail,
+  PostSummary,
+  UploadedFile,
+} from "../types";
 
 const AUTH_EXPIRED_PREFIX = "AUTH_EXPIRED:";
 
@@ -10,21 +12,6 @@ let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(cb: (() => void) | null): void {
   onUnauthorized = cb;
 }
-
-// --- Electron path -------------------------------------------------------
-
-async function callElectron<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith(AUTH_EXPIRED_PREFIX)) {
-      onUnauthorized?.();
-    }
-    throw e;
-  }
-}
-
-// --- Web path ------------------------------------------------------------
 
 async function api<T>(
   method: "GET" | "POST" | "PUT",
@@ -39,7 +26,7 @@ async function api<T>(
   });
   if (res.status === 401) {
     onUnauthorized?.();
-    throw new Error("AUTH_EXPIRED:Sitzung abgelaufen — bitte neu anmelden.");
+    throw new Error(`${AUTH_EXPIRED_PREFIX}Sitzung abgelaufen — bitte neu anmelden.`);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -53,25 +40,36 @@ async function api<T>(
   return (await res.json()) as T;
 }
 
-// --- Unified facade ------------------------------------------------------
-
-const isWeb = __APP_MODE__ === "web";
-
 export const strapi = {
-  listPosts: (): Promise<PostSummary[]> =>
-    isWeb ? api("GET", "/api/posts") : callElectron(() => window.strapi.listPosts()),
-  getPost: (id: string): Promise<PostDetail | null> =>
-    isWeb ? api("GET", `/api/posts/${id}`) : callElectron(() => window.strapi.getPost(id)),
+  listPosts: (): Promise<PostSummary[]> => api("GET", "/api/posts"),
+  getPost: (id: string): Promise<PostDetail | null> => api("GET", `/api/posts/${id}`),
   saveDraft: (id: string, content: string): Promise<PostDetail> =>
-    isWeb
-      ? api("PUT", `/api/posts/${id}`, { content })
-      : callElectron(() => window.strapi.saveDraft(id, content)),
-  publish: (id: string): Promise<PostDetail> =>
-    isWeb
-      ? api("POST", `/api/posts/${id}/publish`)
-      : callElectron(() => window.strapi.publish(id)),
-  createPost: (input: NewPostInput): Promise<PostDetail> =>
-    isWeb ? api("POST", "/api/posts", input) : callElectron(() => window.strapi.createPost(input)),
+    api("PUT", `/api/posts/${id}`, { content }),
+  publish: (id: string): Promise<PostDetail> => api("POST", `/api/posts/${id}/publish`),
+  createPost: (input: NewPostInput): Promise<PostDetail> => api("POST", "/api/posts", input),
+  uploadImage: async (file: File): Promise<UploadedFile> => {
+    const form = new FormData();
+    form.append("file", file, file.name || "paste.png");
+    const res = await fetch("/api/upload/image", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    if (res.status === 401) {
+      onUnauthorized?.();
+      throw new Error(`${AUTH_EXPIRED_PREFIX}Sitzung abgelaufen — bitte neu anmelden.`);
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text) as { error?: string };
+        throw new Error(j.error ?? `${res.status}: ${text}`);
+      } catch {
+        throw new Error(`${res.status}: ${text}`);
+      }
+    }
+    return (await res.json()) as UploadedFile;
+  },
 };
 
-export type { NewPostInput };
+export type { NewPostInput, UploadedFile };

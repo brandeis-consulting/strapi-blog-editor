@@ -6,12 +6,11 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --include=dev
 
-# Copy sources and build both renderer + server bundles
+# Copy sources and build renderer + server bundles
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
 COPY src ./src
-COPY electron ./electron
 COPY server ./server
-RUN npm run build:web
+RUN npm run build
 
 # --- Runtime stage --------------------------------------------------------
 FROM node:20-alpine AS runtime

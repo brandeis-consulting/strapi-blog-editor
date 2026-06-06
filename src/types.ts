@@ -1,11 +1,45 @@
-import type { StrapiBridge, AuthBridge } from "../electron/preload";
+// Shared type definitions for the frontend. These mirror the shapes returned
+// by the Express API in `server/`. Keep this file in sync with
+// `server/lib/strapi.ts` whenever fields change.
 
-declare global {
-  interface Window {
-    strapi: StrapiBridge;
-    auth: AuthBridge;
-  }
+export interface PostSummary {
+  documentId: string;
+  Title: string;
+  Slug: string;
+  createdAt: string;
+  updatedAt: string;
+  Language: string | null;
 }
 
-export type { PostDetail, PostSummary } from "../electron/strapi";
-export type { SessionUser } from "../electron/auth";
+export interface PostDetail extends PostSummary {
+  Content: string;
+  Excerpt: string | null;
+  HeroImage?: { url: string } | null;
+  Author?: { Firstname: string; Lastname: string } | null;
+  ba_blog_categories?: Array<{ Slug: string }>;
+  Links?: Array<{ Title: string; Url: string; Subtext: string | null }>;
+}
+
+export interface NewPostInput {
+  Title: string;
+  Slug: string;
+  Content: string;
+  Language?: string;
+}
+
+export interface UploadedFile {
+  id: number;
+  name: string;
+  url: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
+export interface SessionUser {
+  id: number;
+  email: string;
+  firstname?: string | null;
+  lastname?: string | null;
+  username?: string | null;
+}

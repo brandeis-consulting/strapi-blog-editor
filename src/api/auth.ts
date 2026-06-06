@@ -1,10 +1,6 @@
 import type { SessionUser } from "../types";
 
-declare const __APP_MODE__: "web" | "electron";
-
-const isWeb = __APP_MODE__ === "web";
-
-async function webApi<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<T> {
+async function api<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: "include",
@@ -25,20 +21,14 @@ async function webApi<T>(path: string, method: "GET" | "POST", body?: unknown): 
 
 export const authApi = {
   login: (identifier: string, password: string): Promise<SessionUser> =>
-    isWeb
-      ? webApi<{ user: SessionUser }>("/api/auth/login", "POST", {
-          email: identifier,
-          password,
-        }).then((r) => r.user)
-      : window.auth.login(identifier, password),
+    api<{ user: SessionUser }>("/api/auth/login", "POST", {
+      email: identifier,
+      password,
+    }).then((r) => r.user),
 
   logout: (): Promise<void> =>
-    isWeb
-      ? webApi<{ ok: true }>("/api/auth/logout", "POST").then(() => undefined)
-      : window.auth.logout(),
+    api<{ ok: true }>("/api/auth/logout", "POST").then(() => undefined),
 
   status: (): Promise<SessionUser | null> =>
-    isWeb
-      ? webApi<{ user: SessionUser | null }>("/api/auth/me", "GET").then((r) => r.user)
-      : window.auth.status(),
+    api<{ user: SessionUser | null }>("/api/auth/me", "GET").then((r) => r.user),
 };
