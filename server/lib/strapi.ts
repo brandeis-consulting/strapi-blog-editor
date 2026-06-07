@@ -159,15 +159,20 @@ export class StrapiClient {
   /**
    * Upload a single image to Strapi's media library.
    * Uses /upload (works with Admin-JWT) and returns an absolute URL.
+   * Pass folderId to place the file in a specific media library folder.
    */
   async uploadImage(
     data: Uint8Array,
     filename: string,
     mimetype: string,
+    folderId?: number,
   ): Promise<UploadedFile> {
     const form = new FormData();
     const blob = new Blob([data as BlobPart], { type: mimetype });
     form.append("files", blob, filename);
+    if (folderId !== undefined) {
+      form.append("fileInfo", JSON.stringify({ folder: folderId }));
+    }
 
     const res = await fetch(`${this.baseUrl}/upload`, {
       method: "POST",

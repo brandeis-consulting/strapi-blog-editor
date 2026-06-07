@@ -5,6 +5,9 @@ import { StrapiClient } from "../lib/strapi";
 
 const STRAPI_URL = process.env.STRAPI_URL ?? "https://cms.brandeis.de";
 const MAX_BYTES = 15 * 1024 * 1024;
+const UPLOAD_FOLDER_ID = process.env.UPLOAD_FOLDER_ID
+  ? parseInt(process.env.UPLOAD_FOLDER_ID, 10)
+  : undefined;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -30,6 +33,7 @@ uploadRouter.post("/image", upload.single("file"), async (req: AuthedRequest, re
       new Uint8Array(file.buffer),
       file.originalname || `paste-${Date.now()}.png`,
       file.mimetype,
+      UPLOAD_FOLDER_ID,
     );
     res.json(uploaded);
   } catch (e) {
