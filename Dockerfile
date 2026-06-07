@@ -4,7 +4,8 @@ WORKDIR /app
 
 # Install deps with full dev dependencies for the build
 COPY package.json package-lock.json* ./
-RUN npm ci --include=dev
+RUN npm ci --include=dev && \
+    npm install --no-save @rollup/rollup-linux-x64-musl
 
 # Copy sources and build renderer + server bundles
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
