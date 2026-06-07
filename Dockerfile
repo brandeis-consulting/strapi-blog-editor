@@ -10,6 +10,8 @@ RUN npm ci --include=dev
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
 COPY src ./src
 COPY server ./server
+# Vite bundles a large highlight.js / react-markdown chunk — give Node enough heap
+ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN npm run build
 
 # --- Runtime stage --------------------------------------------------------
