@@ -30,60 +30,67 @@ Optional `.env` (siehe `.env.example`) für eine alternative Strapi-URL.
 
 ## Produktion (Docker, für Portainer)
 
-### Docker-Image bauen
+### Architektur
+
+Zwei Stacks, sauber getrennt:
+
+```
+caddy-config (eigenes Repo)        strapi-blog-editor (dieses Repo)
+├── Caddyfile                       ├── Dockerfile
+└── docker-compose.yml              └── docker-compose.yml
+        │                                    │
+        ▼                                    ▼
+┌──────────────┐    Docker-Netzwerk    ┌──────────────────┐
+│    Caddy     │ ←─── "caddy" ────→   │  blog-editor     │
+│ :80, :443    │                       │  :3000 (intern)  │
+└──────────────┘                       └──────────────────┘
+        │
+        ▼ Let's Encrypt
+   Internet
+```
+
+Caddy läuft als zentraler Reverse-Proxy für alle Web-Apps auf dem Host (siehe Repo `caddy-config`). Der blog-editor klinkt sich nur in das externe `caddy`-Netzwerk ein.
+
+### Voraussetzung: Caddy-Stack läuft
+
+Vor dem ersten Deploy muss der zentrale Caddy-Stack einmalig aufgesetzt sein. Anleitung siehe `caddy-config/README.md`. Im Caddyfile muss ein Block für diese App existieren:
+
+```caddyfile
+blog-editor.brandeis.de {
+    reverse_proxy blog-editor:3000
+    encode gzip
+}
+```
+
+Der DNS-A-Record für die Subdomain muss bereits auf den Server zeigen.
+
+### Stack in Portainer anlegen
+
+**Stacks → Add stack → Repository**:
+
+| Feld                 | Wert                                                |
+| -------------------- | --------------------------------------------------- |
+| Name                 | `blog-editor`                                       |
+| Repository URL       | `https://github.com/<user>/strapi-blog-editor.git`  |
+| Repository reference | `refs/heads/main`                                   |
+| Compose path         | `docker-compose.yml`                                |
+
+**„Deploy the stack"** — Portainer baut das Image aus dem Dockerfile und startet den Container im `caddy`-Netzwerk.
+
+### Lokal bauen und testen
 
 ```powershell
 docker build -t brandeis/blog-editor:latest .
-docker run -p 8080:3000 -e STRAPI_URL=https://cms.brandeis.de brandeis/blog-editor:latest
+docker run --rm -p 8080:3000 -e STRAPI_URL=https://cms.brandeis.de brandeis/blog-editor:latest
+# → http://localhost:8080
 ```
 
-### Portainer-Stack
+### Updates ausrollen
 
-In Portainer → **Stacks → Add stack → Web editor** und folgendes einfügen:
+1. Code-Änderung committen + pushen
+2. Portainer → `blog-editor`-Stack → Editor-Tab → **„Pull and redeploy"** → ✅ **„Re-pull image and redeploy"**
 
-```yaml
-services:
-  blog-editor:
-    build: .
-    image: brandeis/blog-editor:latest
-    container_name: brandeis-blog-editor
-    restart: unless-stopped
-    expose:
-      - "3000"
-    environment:
-      NODE_ENV: production
-      STRAPI_URL: https://cms.brandeis.de
-      PORT: 3000
-    networks:
-      - proxy
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    networks:
-      - proxy
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    command: caddy reverse-proxy --from blog-editor.brandeis.de --to http://blog-editor:3000
-    depends_on:
-      - blog-editor
-
-networks:
-  proxy:
-
-volumes:
-  caddy_data:
-  caddy_config:
-```
-
-- Domain (`blog-editor.brandeis.de`) gegen die echte Subdomain ersetzen
-- DNS-A-Record muss bereits auf den Server zeigen, bevor der Stack startet
-- Caddy holt automatisch ein Let's-Encrypt-Zertifikat
+→ Portainer holt den neusten Commit, baut das Image neu, ersetzt den Container. Caddy bleibt unangefasst.
 
 ### Env-Variablen
 
