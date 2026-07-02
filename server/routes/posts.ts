@@ -31,6 +31,6 @@ postsRouter.put("/:id", (req, res) =>
   run(res, () => client(req).saveDraft(req.params.id, req.body.content)),
 );
 postsRouter.post("/:id/publish", (req, res) =>
-  run(res, () => client(req).publish(req.params.id)),
+  run(res, () => client(req).publish(req.params.id, req.body?.publishDate)),
 );
 postsRouter.post("/", (req, res) => run(res, () => client(req).createPost(req.body)));

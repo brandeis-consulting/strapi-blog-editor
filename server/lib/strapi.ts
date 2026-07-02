@@ -25,6 +25,9 @@ export interface PostSummary {
 export interface PostDetail extends PostSummary {
   Content: string;
   Excerpt: string | null;
+  // Pflichtfeld beim Veröffentlichen. Strapi erzwingt es nur beim Publish,
+  // nicht beim Draft-Speichern — muss also vor dem Publish gesetzt sein.
+  OverridePublishDate?: string | null;
   HeroImage?: { url: string } | null;
   Author?: { Firstname: string; Lastname: string } | null;
   ba_blog_categories?: Array<{ Slug: string }>;
@@ -137,8 +140,22 @@ export class StrapiClient {
     return updated.data;
   }
 
-  /** Publish the current draft. Use after saveDraft when going live. */
-  async publish(documentId: string): Promise<PostDetail> {
+  /**
+   * Publish the current draft. Use after saveDraft when going live.
+   *
+   * Strapi requires the OverridePublishDate field to be non-null before a post
+   * can be published (validated on the publish action, not on draft save). The
+   * publish action itself takes no body, so we write the date into the draft
+   * first when one is supplied.
+   */
+  async publish(documentId: string, overridePublishDate?: string): Promise<PostDetail> {
+    if (overridePublishDate) {
+      await this.request<SingleEnvelope>(
+        "PUT",
+        `/content-manager/collection-types/${POST_UID}/${documentId}`,
+        { OverridePublishDate: overridePublishDate },
+      );
+    }
     const result = await this.request<SingleEnvelope>(
       "POST",
       `/content-manager/collection-types/${POST_UID}/${documentId}/actions/publish`,

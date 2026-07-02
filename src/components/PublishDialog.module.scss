@@ -106,6 +106,36 @@
 .lineRemoved { background: #fde0e0; color: #7f1d1d; display: block; }
 .lineCtx { color: #4a4a4a; display: block; }
 
+.publishDate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid #e2e4ec;
+
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0C3C60;
+  }
+
+  input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #cdd0db;
+    border-radius: 0.4rem;
+    font-size: 0.9rem;
+
+    &:disabled { opacity: 0.5; cursor: default; }
+  }
+}
+
+.publishDateHint {
+  flex-basis: 100%;
+  color: #606060;
+  font-size: 0.78rem;
+}
+
 .error {
   margin: 0 1.5rem 0.75rem;
   padding: 0.5rem 0.75rem;

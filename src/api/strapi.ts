@@ -45,7 +45,8 @@ export const strapi = {
   getPost: (id: string): Promise<PostDetail | null> => api("GET", `/api/posts/${id}`),
   saveDraft: (id: string, content: string): Promise<PostDetail> =>
     api("PUT", `/api/posts/${id}`, { content }),
-  publish: (id: string): Promise<PostDetail> => api("POST", `/api/posts/${id}/publish`),
+  publish: (id: string, publishDate: string): Promise<PostDetail> =>
+    api("POST", `/api/posts/${id}/publish`, { publishDate }),
   createPost: (input: NewPostInput): Promise<PostDetail> => api("POST", "/api/posts", input),
   uploadImage: async (file: File): Promise<UploadedFile> => {
     const form = new FormData();

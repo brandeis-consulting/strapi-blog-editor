@@ -67,6 +67,16 @@ function stripMarksInsideCodeFences(md: string): string {
   return lines.join("\n");
 }
 
+/**
+ * Value for an <input type="date">. Uses the post's existing
+ * OverridePublishDate (trimmed to YYYY-MM-DD) or falls back to today, so the
+ * required field is always pre-filled when the publish dialog opens.
+ */
+function toDateInputValue(iso: string | null | undefined): string {
+  if (iso && iso.length >= 10) return iso.slice(0, 10);
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function AppShell({ user, onLogout }: Props) {
   const { posts, loading, error, reload } = usePosts();
   const [buffers, setBuffers] = useState<Map<string, PostBuffer>>(new Map());
@@ -77,6 +87,7 @@ export function AppShell({ user, onLogout }: Props) {
   const [saving, setSaving] = useState(false);
   const [savingMode, setSavingMode] = useState<SaveMode | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [publishDate, setPublishDate] = useState("");
 
   const [newOpen, setNewOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -175,7 +186,7 @@ export function AppShell({ user, onLogout }: Props) {
         updated = await strapi.saveDraft(activePost.documentId, draft);
       }
       if (mode === "publish") {
-        updated = await strapi.publish(activePost.documentId);
+        updated = await strapi.publish(activePost.documentId, publishDate);
       }
       upsertBuffer(updated, updated.Content);
       setSaveOpen(false);
@@ -208,6 +219,13 @@ export function AppShell({ user, onLogout }: Props) {
     }
   }
 
+  function openSaveDialog() {
+    if (!activePost) return;
+    setPublishDate(toDateInputValue(activePost.OverridePublishDate));
+    setSaveError(null);
+    setSaveOpen(true);
+  }
+
   function toggleSidebar() {
     const panel = sidebarRef.current;
     if (!panel) return;
@@ -219,7 +237,7 @@ export function AppShell({ user, onLogout }: Props) {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
-        if (activeId) setSaveOpen(true);
+        if (activeId) openSaveDialog();
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "b") {
         e.preventDefault();
@@ -293,7 +311,7 @@ export function AppShell({ user, onLogout }: Props) {
           type="button"
           className={styles.publishBtn}
           disabled={!activePost || saving}
-          onClick={() => setSaveOpen(true)}
+          onClick={openSaveDialog}
           title={isDirty ? "Speichern (Strg+S)" : "Veröffentlichen oder Entwurf speichern"}
         >
           {isDirty ? "Speichern" : "Veröffentlichen"}
@@ -359,6 +377,8 @@ export function AppShell({ user, onLogout }: Props) {
         saving={saving}
         savingMode={savingMode}
         error={saveError}
+        publishDate={publishDate}
+        onPublishDateChange={setPublishDate}
         onCancel={() => {
           setSaveOpen(false);
           setSaveError(null);
