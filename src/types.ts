@@ -14,9 +14,9 @@ export interface PostSummary {
 export interface PostDetail extends PostSummary {
   Content: string;
   Excerpt: string | null;
-  // Pflichtfeld beim Veröffentlichen (Strapi validiert es nur beim Publish,
-  // nicht beim Draft-Speichern). ISO-String oder null, wenn noch nie gesetzt.
-  OverridePublishDate?: string | null;
+  // Pflicht-Boolean beim Veröffentlichen (Strapi validiert es nur beim Publish,
+  // nicht beim Draft-Speichern). null, wenn noch nie gesetzt.
+  OverridePublishDate?: boolean | null;
   HeroImage?: { url: string } | null;
   Author?: { Firstname: string; Lastname: string } | null;
   ba_blog_categories?: Array<{ Slug: string }>;

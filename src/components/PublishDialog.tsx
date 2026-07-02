@@ -12,15 +12,15 @@ interface Props {
   saving: boolean;
   savingMode: SaveMode | null;
   error: string | null;
-  publishDate: string;
-  onPublishDateChange: (date: string) => void;
+  overridePublishDate: boolean;
+  onOverridePublishDateChange: (value: boolean) => void;
   onCancel: () => void;
   onSave: (mode: SaveMode) => void;
 }
 
 export function PublishDialog({
   open, title, original, draft, saving, savingMode, error,
-  publishDate, onPublishDateChange, onCancel, onSave,
+  overridePublishDate, onOverridePublishDateChange, onCancel, onSave,
 }: Props) {
   const parts = useMemo(
     () => (open ? diffLines(original, draft) : []),
@@ -69,16 +69,18 @@ export function PublishDialog({
         )}
 
         <div className={styles.publishDate}>
-          <label htmlFor="publish-date">Veröffentlichungsdatum</label>
-          <input
-            id="publish-date"
-            type="date"
-            value={publishDate}
-            onChange={(e) => onPublishDateChange(e.target.value)}
-            disabled={saving}
-          />
+          <label htmlFor="override-publish-date">
+            <input
+              id="override-publish-date"
+              type="checkbox"
+              checked={overridePublishDate}
+              onChange={(e) => onOverridePublishDateChange(e.target.checked)}
+              disabled={saving}
+            />
+            Veröffentlichungsdatum überschreiben
+          </label>
           <span className={styles.publishDateHint}>
-            Pflichtfeld für die Veröffentlichung. Betrifft nur den Publish, nicht den Entwurf.
+            Pflicht-Schalter von Strapi. Betrifft nur den Publish, nicht den Entwurf.
           </span>
         </div>
 
@@ -101,12 +103,8 @@ export function PublishDialog({
             type="button"
             className={styles.primary}
             onClick={() => onSave("publish")}
-            disabled={saving || !publishDate}
-            title={
-              publishDate
-                ? "Veröffentlicht den aktuellen Stand auf der Live-Site."
-                : "Bitte zuerst ein Veröffentlichungsdatum wählen."
-            }
+            disabled={saving}
+            title="Veröffentlicht den aktuellen Stand auf der Live-Site."
           >
             {saving && savingMode === "publish"
               ? "Veröffentlichen…"
