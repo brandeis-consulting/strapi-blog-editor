@@ -5,8 +5,6 @@ import type {
   UploadedFile,
 } from "../types";
 
-const AUTH_EXPIRED_PREFIX = "AUTH_EXPIRED:";
-
 let onUnauthorized: (() => void) | null = null;
 
 export function setUnauthorizedHandler(cb: (() => void) | null): void {
@@ -26,7 +24,7 @@ async function api<T>(
   });
   if (res.status === 401) {
     onUnauthorized?.();
-    throw new Error(`${AUTH_EXPIRED_PREFIX}Sitzung abgelaufen — bitte neu anmelden.`);
+    throw new Error("Sitzung abgelaufen — bitte neu anmelden.");
   }
   if (!res.ok) {
     const text = await res.text();
@@ -58,7 +56,7 @@ export const strapi = {
     });
     if (res.status === 401) {
       onUnauthorized?.();
-      throw new Error(`${AUTH_EXPIRED_PREFIX}Sitzung abgelaufen — bitte neu anmelden.`);
+      throw new Error("Sitzung abgelaufen — bitte neu anmelden.");
     }
     if (!res.ok) {
       const text = await res.text();

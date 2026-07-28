@@ -21,5 +21,12 @@ export function App() {
     return <Login onLogin={auth.login} />;
   }
 
-  return <AppShell user={auth.user} onLogout={auth.logout} />;
+  return (
+    <>
+      <AppShell user={auth.user} onLogout={auth.logout} />
+      {auth.sessionExpired && (
+        <Login onLogin={auth.login} overlay initialEmail={auth.user.email} />
+      )}
+    </>
+  );
 }

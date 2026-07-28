@@ -49,7 +49,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Login mit **Strapi-Admin-Account** (jeder Kollege hat ohnehin einen für das Admin-Panel)
 - Identitäts-Tracking pro Kollege (kein shared Token)
 - JWT im Server-`HttpOnly`-Cookie (XSS-sicher)
-- Bei Session-Ablauf automatisch zurück zum Login
+- Bei Session-Ablauf Re-Login-Overlay **ohne Verlust ungespeicherter Eingaben** (AppShell bleibt gemountet)
 
 ---
 
@@ -154,6 +154,8 @@ Internet
 - `dirtyIds = Set<id>` wird daraus per `useMemo` abgeleitet
 
 Buffer leben nur im Arbeitsspeicher des Browsers. Tab-Schließen leert sie — bewusst, siehe [ADR-005](#adr-005-buffer-nur-im-memory-keine-localstorage-persistenz).
+
+**Session-Ablauf verliert keine Buffer:** Ein 401 während der Arbeit unmountet die `AppShell` nicht. `useAuth.invalidate()` setzt nur `sessionExpired = true` (der `user`-State bleibt), `App.tsx` legt die `Login`-Komponente als Overlay (`overlay`-Prop, E-Mail vorausgefüllt) über die weiterhin gemountete Shell. Nach erfolgreichem Re-Login verschwindet das Overlay; Buffer, aktiver Post und Layout sind unverändert.
 
 ---
 

@@ -3,10 +3,16 @@ import styles from "./Login.module.scss";
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<void>;
+  /**
+   * Overlay mode: rendered on top of the still-mounted AppShell after the
+   * session expired, so unsaved buffers survive the re-login.
+   */
+  overlay?: boolean;
+  initialEmail?: string;
 }
 
-export function Login({ onLogin }: Props) {
-  const [email, setEmail] = useState("");
+export function Login({ onLogin, overlay = false, initialEmail }: Props) {
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,16 +31,20 @@ export function Login({ onLogin }: Props) {
   }
 
   return (
-    <div className={styles.screen}>
+    <div className={overlay ? styles.overlay : styles.screen}>
       <form className={styles.card} onSubmit={submit}>
-        <h1>Brandeis Blog Editor</h1>
-        <p className={styles.subtitle}>Anmelden mit deinem Strapi-Admin-Account</p>
+        <h1>{overlay ? "Sitzung abgelaufen" : "Brandeis Blog Editor"}</h1>
+        <p className={styles.subtitle}>
+          {overlay
+            ? "Bitte melde dich neu an — deine ungespeicherten Änderungen bleiben erhalten."
+            : "Anmelden mit deinem Strapi-Admin-Account"}
+        </p>
         <label className={styles.field}>
           <span>E-Mail</span>
           <input
             type="email"
             autoComplete="username"
-            autoFocus
+            autoFocus={!initialEmail}
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -46,6 +56,7 @@ export function Login({ onLogin }: Props) {
           <input
             type="password"
             autoComplete="current-password"
+            autoFocus={!!initialEmail}
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}

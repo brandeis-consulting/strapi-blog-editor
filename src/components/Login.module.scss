@@ -7,6 +7,19 @@
   background: linear-gradient(135deg, #0C3C60 0%, #1c2333 100%);
 }
 
+// Re-Login nach Session-Ablauf: liegt über der weiterhin gemounteten AppShell
+// (z-index über den Dialogen mit 100), damit deren Buffer erhalten bleiben.
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 24, 40, 0.72);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+}
+
 .card {
   width: min(420px, 90vw);
   background: white;
