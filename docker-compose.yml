@@ -2,6 +2,10 @@ services:
   blog-editor:
     build: .
     image: brandeis/blog-editor:latest
+    # Image wird lokal aus dem Repo gebaut, nie aus einer Registry gepullt —
+    # sonst scheitert Portainers "compose pull" (brandeis/blog-editor liegt
+    # nicht auf Docker Hub).
+    pull_policy: build
     container_name: brandeis-blog-editor
     restart: unless-stopped
     environment:
