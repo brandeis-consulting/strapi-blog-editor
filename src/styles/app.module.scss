@@ -203,3 +203,34 @@
   text-overflow: ellipsis;
   max-width: 180px;
 }
+
+// Rückmeldung nach dem Übersetzen (AppShell). Bleibt stehen, bis der Nutzer
+// sie schließt — die Meldung nennt den erzeugten Slug und ggf. was nicht
+// übernommen wurde.
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #eaf2fa;
+  color: #0C3C60;
+  border-bottom: 1px solid #cfe0ef;
+  font-size: 0.85rem;
+
+  &.noticeWarn {
+    background: #fdf3e0;
+    color: #7a4a00;
+    border-bottom-color: #f0d9ae;
+  }
+
+  button {
+    margin-left: auto;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    color: inherit;
+    padding: 0.1rem 0.3rem;
+  }
+}

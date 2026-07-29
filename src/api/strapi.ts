@@ -2,6 +2,7 @@ import type {
   NewPostInput,
   PostDetail,
   PostSummary,
+  TranslationResult,
   UploadedFile,
 } from "../types";
 
@@ -46,6 +47,12 @@ export const strapi = {
   publish: (id: string, overridePublishDate: boolean): Promise<PostDetail> =>
     api("POST", `/api/posts/${id}/publish`, { overridePublishDate }),
   createPost: (input: NewPostInput): Promise<PostDetail> => api("POST", "/api/posts", input),
+  /**
+   * Übersetzt einen Beitrag ins Englische und legt ihn als Entwurf an.
+   * Der API-Key geht nur an das eigene Backend und wird dort nicht gespeichert.
+   */
+  translate: (documentId: string, apiKey: string): Promise<TranslationResult> =>
+    api("POST", "/api/translate", { documentId, apiKey }),
   uploadImage: async (file: File): Promise<UploadedFile> => {
     const form = new FormData();
     form.append("file", file, file.name || "paste.png");

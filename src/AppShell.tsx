@@ -18,6 +18,7 @@ import { Editor } from "./components/Editor";
 import { Preview } from "./components/Preview";
 import { PublishDialog, type SaveMode } from "./components/PublishDialog";
 import { NewPostDialog } from "./components/NewPostDialog";
+import { TranslateDialog } from "./components/TranslateDialog";
 import styles from "./styles/app.module.scss";
 
 const STRAPI_HOST = "https://cms.brandeis.de";
@@ -82,6 +83,11 @@ export function AppShell({ user, onLogout }: Props) {
   const [newOpen, setNewOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  const [translateOpen, setTranslateOpen] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [translateNotice, setTranslateNotice] = useState<string | null>(null);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [scrollSync, setScrollSync] = useState(true);
@@ -209,6 +215,35 @@ export function AppShell({ user, onLogout }: Props) {
     }
   }
 
+  /**
+   * Übersetzt den aktiven Beitrag und öffnet die neue englische Fassung.
+   *
+   * Der API-Key wandert nur an das eigene Backend (die CSP lässt Aufrufe an
+   * api.anthropic.com aus dem Browser ohnehin nicht zu) und wird dort nicht
+   * gespeichert.
+   */
+  async function translateActive(apiKey: string) {
+    if (!activePost) return;
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const { post, slug, warnings } = await strapi.translate(activePost.documentId, apiKey);
+      upsertBuffer(post, post.Content);
+      setActiveId(post.documentId);
+      setTranslateOpen(false);
+      setTranslateNotice(
+        warnings.length
+          ? `Englischer Entwurf „${slug}“ angelegt — aber: ${warnings.join(" ")}`
+          : `Englischer Entwurf „${slug}“ angelegt und mit dem Original verknüpft.`,
+      );
+      void reload();
+    } catch (e) {
+      setTranslateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTranslating(false);
+    }
+  }
+
   function openSaveDialog() {
     if (!activePost) return;
     setOverridePublishDate(activePost.OverridePublishDate ?? false);
@@ -290,6 +325,23 @@ export function AppShell({ user, onLogout }: Props) {
         </button>
         <button
           type="button"
+          className={styles.toggleBtn}
+          disabled={!activePost || saving || translating || activePost?.Language === "Englisch"}
+          onClick={() => {
+            setTranslateError(null);
+            setTranslateNotice(null);
+            setTranslateOpen(true);
+          }}
+          title={
+            activePost?.Language === "Englisch"
+              ? "Der Beitrag ist bereits auf Englisch"
+              : "Ins Englische übersetzen und als Entwurf anlegen"
+          }
+        >
+          🌐 Übersetzen
+        </button>
+        <button
+          type="button"
           className={styles.discardBtn}
           disabled={!isDirty || saving}
           onClick={discardChanges}
@@ -307,6 +359,13 @@ export function AppShell({ user, onLogout }: Props) {
           {isDirty ? "Speichern" : "Veröffentlichen"}
         </button>
       </header>
+
+      {translateNotice && (
+        <div className={translateNotice.includes("aber:") ? `${styles.notice} ${styles.noticeWarn}` : styles.notice}>
+          <span>{translateNotice}</span>
+          <button type="button" onClick={() => setTranslateNotice(null)} title="Schließen">×</button>
+        </div>
+      )}
 
       <PanelGroup
         direction="horizontal"
@@ -358,6 +417,18 @@ export function AppShell({ user, onLogout }: Props) {
           </div>
         </Panel>
       </PanelGroup>
+
+      <TranslateDialog
+        open={translateOpen}
+        busy={translating}
+        error={translateError}
+        postTitle={activePost?.Title ?? ""}
+        onCancel={() => {
+          setTranslateOpen(false);
+          setTranslateError(null);
+        }}
+        onTranslate={translateActive}
+      />
 
       <PublishDialog
         open={saveOpen}

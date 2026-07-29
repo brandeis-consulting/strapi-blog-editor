@@ -30,6 +30,13 @@ export interface NewPostInput {
   Language?: string;
 }
 
+export interface TranslationResult {
+  post: PostDetail;
+  slug: string;
+  /** Nicht übernommene Felder/Relationen — leer, wenn alles geklappt hat. */
+  warnings: string[];
+}
+
 export interface UploadedFile {
   id: number;
   name: string;

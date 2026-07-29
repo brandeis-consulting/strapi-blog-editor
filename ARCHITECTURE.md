@@ -322,6 +322,35 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 
 ---
 
+### ADR-011: Übersetzung serverseitig, API-Key pro Anfrage
+
+**Status:** akzeptiert
+
+**Kontext:** Ein Button soll einen Beitrag ins Englische übersetzen. Die Claude-API kostet pro Aufruf direktes Geld, und der Editor läuft als geteilter Web-Service — ein hinterlegter Key wäre für alle Angemeldeten nutzbar, ohne dass jemand die Kosten bemerkt.
+
+Zwei technische Randbedingungen entscheiden mit:
+- Die CSP in `server/index.ts` setzt `connect-src 'self'`. Der Browser kann `api.anthropic.com` also gar nicht erreichen.
+- Ein Key im Frontend wäre ohnehin über die DevTools einsehbar.
+
+**Entscheidung:**
+- Die Übersetzung läuft in `server/routes/translate.ts`, nicht im Browser.
+- Der Key kommt aus einem Modal, wird pro Anfrage übergeben, für genau einen Aufruf verwendet und **nirgends gespeichert** — weder in `localStorage`, noch in einer Env-Variable, noch serverseitig.
+- Bewusst *keine* Env-Variable: die Reibung ist der Zweck. Wer übersetzt, entscheidet sich sichtbar für die Kosten.
+
+**Konsequenz:** Bei mehreren Beiträgen hintereinander muss der Key mehrfach eingegeben werden. Das ist gewollt; ein Opt-in „für diese Sitzung merken“ wäre die naheliegende Erweiterung, falls es stört.
+
+### ADR-012: Übersetzungs-Prompt dupliziert statt geteilt
+
+**Status:** akzeptiert (mit bekanntem Nachteil)
+
+**Kontext:** Dieselbe Übersetzung gibt es zweimal: als Massenlauf in `brandeis-academy/scripts/translate-posts.mjs` (Message Batches API, 50 % günstiger, asynchron) und hier als Einzelaufruf. System-Prompt, JSON-Schema und die Nachbehandlung müssen identisch sein, sonst übersetzen beide Wege unterschiedlich. Die beiden liegen in **getrennten Repos**; ein gemeinsames npm-Paket wäre sauber, bedeutet aber Versionierung und Veröffentlichung für zwei Aufrufstellen.
+
+**Entscheidung:** Prompt und Schema sind in `server/lib/translate.ts` dupliziert, mit gegenseitigem Verweis im Dateikopf beider Dateien.
+
+**Konsequenz:** Änderungen am Prompt müssen an beiden Stellen nachgezogen werden. Sobald eine dritte Aufrufstelle entsteht, lohnt sich das gemeinsame Paket.
+
+**Unterschied, der bleiben darf:** Der Batch nutzt die Message Batches API (günstiger, dafür Wartezeit von Minuten), der Editor einen synchronen Aufruf — hier zählt die Antwortzeit.
+
 ## Lessons Learned
 
 Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben nicht überraschen.

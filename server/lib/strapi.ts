@@ -28,10 +28,14 @@ export interface PostDetail extends PostSummary {
   // Pflicht-Boolean beim Veröffentlichen. Strapi erzwingt es nur beim Publish,
   // nicht beim Draft-Speichern — muss also vor dem Publish gesetzt sein.
   OverridePublishDate?: boolean | null;
-  HeroImage?: { url: string } | null;
-  Author?: { Firstname: string; Lastname: string } | null;
-  ba_blog_categories?: Array<{ Slug: string }>;
+  PublishDate?: string | null;
+  IsCareer?: boolean | null;
+  TemplateType?: string | null;
+  HeroImage?: { id?: number; url: string } | null;
+  Author?: { documentId?: string; Firstname: string; Lastname: string } | null;
+  ba_blog_categories?: Array<{ documentId?: string; Slug: string }>;
   Links?: Array<{ Title: string; Url: string; Subtext: string | null }>;
+  translation_related_posts?: Array<{ documentId?: string; Slug: string; Language?: string | null }>;
 }
 
 export interface NewPostInput {
@@ -39,6 +43,23 @@ export interface NewPostInput {
   Slug: string;
   Content: string;
   Language?: string;
+}
+
+/** Felder, die eine Übersetzung vom Original erbt. */
+export interface TranslationInput extends NewPostInput {
+  Excerpt: string | null;
+  OverridePublishDate: boolean;
+  PublishDate: string | null;
+  IsCareer: boolean;
+  TemplateType: string;
+  /** documentIds der Kategorien des Originals. */
+  categoryIds: string[];
+  /** documentId des Autors, falls gesetzt. */
+  authorId: string | null;
+  /** numerische Datei-ID des HeroImage, falls gesetzt. */
+  heroImageId: number | null;
+  /** documentId des deutschen Originals — für translation_related_posts. */
+  sourceId: string;
 }
 
 export interface UploadedFile {
@@ -116,12 +137,71 @@ export class StrapiClient {
     }));
   }
 
+  /**
+   * Alle vergebenen Slugs — für die Kollisionsprüfung beim Anlegen einer
+   * Übersetzung. Bewusst inklusive Entwürfe: ein bereits als Entwurf
+   * angelegter Slug ist ebenso belegt.
+   */
+  async listSlugs(): Promise<string[]> {
+    const query = new URLSearchParams({ page: "1", pageSize: "500", fields: "Slug" });
+    const data = await this.request<ListEnvelope>(
+      "GET",
+      `/content-manager/collection-types/${POST_UID}?${query}`,
+    );
+    return data.results.map((p) => p.Slug).filter(Boolean);
+  }
+
+  /**
+   * Legt die englische Fassung als **Entwurf** an und verknüpft sie beidseitig
+   * mit dem Original.
+   *
+   * `translation_related_posts` ist eine oneToMany-Self-Relation und wird von
+   * Strapi *nicht* automatisch gegenseitig gesetzt. Ohne die Rückrichtung
+   * funktioniert der Sprachumschalter nur einseitig und Google ignoriert den
+   * hreflang, weil er nicht reziprok ist.
+   */
+  async createTranslation(input: TranslationInput): Promise<PostDetail> {
+    const created = await this.request<SingleEnvelope>(
+      "POST",
+      `/content-manager/collection-types/${POST_UID}`,
+      {
+        Title: input.Title,
+        Slug: input.Slug,
+        Content: input.Content,
+        Excerpt: input.Excerpt,
+        Language: input.Language ?? "Englisch",
+        OverridePublishDate: input.OverridePublishDate,
+        PublishDate: input.PublishDate,
+        IsCareer: input.IsCareer,
+        TemplateType: input.TemplateType,
+        ba_blog_categories: input.categoryIds,
+        Author: input.authorId,
+        HeroImage: input.heroImageId,
+        translation_related_posts: [input.sourceId],
+      },
+    );
+
+    // Rückrichtung am Original ergänzen, ohne bestehende Verknüpfungen zu verlieren.
+    const source = await this.getPost(input.sourceId);
+    const existing = (source?.translation_related_posts ?? [])
+      .map((t) => t.documentId)
+      .filter((id): id is string => Boolean(id));
+    await this.request<SingleEnvelope>(
+      "PUT",
+      `/content-manager/collection-types/${POST_UID}/${input.sourceId}`,
+      { translation_related_posts: [...new Set([...existing, created.data.documentId])] },
+    );
+
+    return created.data;
+  }
+
   async getPost(documentId: string): Promise<PostDetail | null> {
     const query = new URLSearchParams({
       "populate[HeroImage]": "true",
       "populate[Author]": "true",
       "populate[ba_blog_categories]": "true",
       "populate[Links]": "true",
+      "populate[translation_related_posts]": "true",
     });
     const data = await this.request<SingleEnvelope>(
       "GET",

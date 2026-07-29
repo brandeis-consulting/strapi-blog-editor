@@ -4,6 +4,7 @@ import helmet from "helmet";
 import path from "node:path";
 import { authRouter } from "./routes/auth";
 import { postsRouter } from "./routes/posts";
+import { translateRouter } from "./routes/translate";
 import { uploadRouter } from "./routes/upload";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -31,6 +32,7 @@ app.get("/healthz", (_req, res) => {
 });
 app.use("/api/auth", authRouter);
 app.use("/api/posts", postsRouter);
+app.use("/api/translate", translateRouter);
 app.use("/api/upload", uploadRouter);
 
 app.use(express.static(STATIC_DIR));
