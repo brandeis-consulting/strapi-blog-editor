@@ -6,8 +6,8 @@ import {
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import type { EditorView } from "@codemirror/view";
-import { diffWords } from "diff";
 import { strapi } from "./api/strapi";
+import { annotateAddedWords } from "./render/annotate";
 import { BrandeisLogo } from "./components/BrandeisLogo";
 import type { PostDetail, PostSummary, SessionUser } from "./types";
 import { usePosts } from "./hooks/usePosts";
@@ -35,37 +35,6 @@ interface Props {
 interface PostBuffer {
   detail: PostDetail;
   draft: string;
-}
-
-/**
- * Wrap word-level additions with <mark> so the preview highlights what is new.
- * Lines inside fenced code blocks are skipped to avoid breaking syntax
- * highlighting and to keep the diff readable.
- */
-function annotateAddedWords(original: string, draft: string): string {
-  const parts = diffWords(original, draft);
-  const out = parts
-    .filter((p) => !p.removed)
-    .map((p) => (p.added ? `<mark class="diff-added">${p.value}</mark>` : p.value))
-    .join("");
-  return stripMarksInsideCodeFences(out);
-}
-
-function stripMarksInsideCodeFences(md: string): string {
-  const lines = md.split("\n");
-  let inFence = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s{0,3}```/.test(lines[i])) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      lines[i] = lines[i]
-        .replace(/<mark class="diff-added">/g, "")
-        .replace(/<\/mark>/g, "");
-    }
-  }
-  return lines.join("\n");
 }
 
 export function AppShell({ user, onLogout }: Props) {
