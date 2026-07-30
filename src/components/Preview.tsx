@@ -72,7 +72,9 @@ export function Preview({ post, draftContent, strapiHost, scrollRef }: Props) {
               </div>
             )}
           </p>
-          <Markdown>{draftContent}</Markdown>
+          {/* Sprache des Beitrags durchreichen: die KI-Kennzeichnung muss in
+              der Sprache des Textes erscheinen, nicht in der der Oberfläche. */}
+          <Markdown locale={post.Language === "Englisch" ? "en" : "de"}>{draftContent}</Markdown>
           {post.Links && post.Links.length > 0 && (
             <div className={`hideOnPrint ${blogLayout.blogPostLinksBox}`}>
               <div className={blogLayout.blogPostLinks}>
