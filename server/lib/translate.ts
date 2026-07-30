@@ -72,23 +72,35 @@ export async function translatePost(
 ): Promise<Translation> {
   const client = new Anthropic({ apiKey });
 
-  const message = await client.messages.create({
-    model: MODEL,
-    max_tokens: 32000,
-    thinking: { type: "adaptive" },
-    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
-    system: SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content:
-          `Übersetze diesen Blogbeitrag ins Englische.\n\n` +
-          `<title>${post.Title ?? ""}</title>\n` +
-          `<excerpt>${post.Excerpt ?? ""}</excerpt>\n` +
-          `<content>\n${post.Content ?? ""}\n</content>`,
-      },
-    ],
-  });
+  /**
+   * Streaming ist hier Pflicht, nicht Geschmackssache: bei einem max_tokens
+   * dieser Größe lehnt das SDK einen nicht-streamenden Aufruf rundheraus ab
+   * ("Streaming is required for operations that may take longer than 10
+   * minutes"), weil die Anfrage in den HTTP-Timeout laufen könnte. Lange
+   * Blogbeiträge brauchen den Spielraum aber.
+   *
+   * Die Einzelevents interessieren nicht — finalMessage() wartet die komplette
+   * Antwort ab und liefert sie wie ein normaler create()-Aufruf.
+   */
+  const message = await client.messages
+    .stream({
+      model: MODEL,
+      max_tokens: 32000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
+      system: SYSTEM,
+      messages: [
+        {
+          role: "user",
+          content:
+            `Übersetze diesen Blogbeitrag ins Englische.\n\n` +
+            `<title>${post.Title ?? ""}</title>\n` +
+            `<excerpt>${post.Excerpt ?? ""}</excerpt>\n` +
+            `<content>\n${post.Content ?? ""}\n</content>`,
+        },
+      ],
+    })
+    .finalMessage();
 
   if (message.stop_reason === "max_tokens") {
     throw new Error("Der Beitrag ist zu lang — die Antwort wurde abgeschnitten.");
