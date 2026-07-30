@@ -298,13 +298,18 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 
 **Kontext:** Geänderte Wörter sollen in der Preview sichtbar sein.
 
-**Entscheidung:** `diffWords(original, draft)` liefert Chunks, Added-Chunks werden in `<mark class="diff-added">…</mark>` eingewickelt — direkt im Markdown-String vor dem Rendering. `rehype-raw` lässt das durch.
+**Entscheidung:** `diffWords(original, draft)` liefert Chunks, Added-Chunks werden in `<mark class="diff-added">…</mark>` eingewickelt — direkt im Markdown-String vor dem Rendering. `rehype-raw` lässt das durch. Die Logik liegt in `src/render/annotate.ts`.
 
 **Begründung:** Pragmatisch, kein Custom-Plugin nötig.
 
+**Schutzmaßnahmen** (damit Marks keine Block-Konstrukte zerstören):
+- Marks werden **zeilenweise** gesetzt (`markPerLine`) — ein Mark über einen Zeilenumbruch hinweg würde Absätze/Tabellen/Listen zusammenkleben
+- Code-Fences: Fence-Erkennung auf der Mark-freien Zeile, Marks in Fences und auf Fence-Zeilen werden gestrippt (`stripMarksInsideCodeFences`)
+- GFM-Tabellen: Marks vor dem ersten Pipe oder in der Trennzeile brechen die Tabellenerkennung und werden gestrippt (`stripMarksBreakingTables`); Marks **innerhalb** einer Zelle bleiben erhalten
+
 **Bekannte Grenzen:**
 - `<mark>` mitten in Inline-Konstrukten (`[link](url)`, `**bold**`) kann Layout brechen
-- Code-Fences werden explizit gestrippt (`stripMarksInsideCodeFences`)
+- Komplett neu getippte Tabellen und Codeblöcke werden korrekt gerendert, aber nicht hervorgehoben
 - Removed-Words werden nicht angezeigt (würde Preview-Länge verändern)
 
 ### ADR-010: Image-Paste schreibt sofortigen Platzhalter
