@@ -1,11 +1,16 @@
 services:
   blog-editor:
-    build: .
-    image: brandeis/blog-editor:latest
-    # Image wird lokal aus dem Repo gebaut, nie aus einer Registry gepullt —
-    # sonst scheitert Portainers "compose pull" (brandeis/blog-editor liegt
-    # nicht auf Docker Hub).
-    pull_policy: build
+    # Fertiges Image aus ghcr, gebaut von .github/workflows/build.yml.
+    #
+    # **Nicht `build: .`** — der Zielserver (files.brandeis.de) hat 1,9 GB RAM,
+    # von denen im Betrieb keine 800 MB frei sind. Der Vite-Build verlangt allein
+    # 2 GB Heap; ein Build dort reißt im Zweifel CRM, Hub oder die
+    # Zipline-Postgres mit, die auf derselben Maschine laufen.
+    #
+    # Ebenso bewusst **kein `pull_policy: always`**: Die Zugangsdaten für das
+    # private ghcr-Paket hat nur Portainer. Das Neuziehen stößt der
+    # Stack-Webhook an (siehe .github/scripts/portainer-deploy.sh).
+    image: ghcr.io/brandeis-consulting/blog-editor:latest
     container_name: brandeis-blog-editor
     restart: unless-stopped
     environment:
@@ -13,17 +18,18 @@ services:
       STRAPI_URL: ${STRAPI_URL:-https://cms.brandeis.de}
       PORT: 3000
       UPLOAD_FOLDER_ID: ${UPLOAD_FOLDER_ID:-}
-    networks:
-      - caddy
+      # Vorschauseite im Gatsby-Projekt, wird als iframe eingebettet. Aus ihrem
+      # Origin leitet der Server `frame-src` in der CSP ab — zeigt die Variable
+      # ins Leere, blockiert der Browser die Vorschau.
+      PREVIEW_URL: ${PREVIEW_URL:-https://www.brandeis.de/blog-preview/}
+    # Nur auf dem Loopback veröffentlichen, wie crm (8080), hub (3002) und
+    # zipline (3000). Caddy läuft auf files.brandeis.de als **Host-Prozess**,
+    # nicht im Container — es kann Docker-DNS also gar nicht auflösen und
+    # erreicht den Dienst nur über localhost. 3000 ist von zipline belegt.
+    ports:
+      - "127.0.0.1:3003:3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-# Externes Docker-Netzwerk, das vom zentralen Caddy-Stack bereitgestellt wird.
-# Caddy proxiet anhand des im Caddyfile-Block hinterlegten Hostnamens hierher.
-# Der Caddy-Stack wird separat aus dem Repo `caddy-config` deployt.
-networks:
-  caddy:
-    external: true

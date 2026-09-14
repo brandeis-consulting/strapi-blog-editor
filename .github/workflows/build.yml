@@ -1,0 +1,69 @@
+name: build
+
+# Baut das Container-Image in der CI und rollt den Portainer-Stack aus.
+#
+# Warum nicht auf dem Server bauen (wie es README und docker-compose.yml bis
+# September 2026 vorsahen): files.brandeis.de hat **1,9 GB RAM**, von denen im
+# Betrieb keine 800 MB frei sind. Der Vite-Build bekommt allein 2 GB Heap. Ein
+# Build dort scheitert entweder — oder der OOM-Killer greift sich CRM, Hub oder
+# die Zipline-Postgres, die auf derselben Maschine laufen.
+#
+# Gleiches Muster wie brandeis-platform: Image nach ghcr, Ausrollen über den
+# Portainer-Stack-Webhook. Die Zugangsdaten für das **private** ghcr-Paket hat
+# nur Portainer — deshalb der Webhook und nicht `pull_policy: always` im Compose.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Typprüfung als schnelle Vorstufe. `npm run build` im Dockerfile prüft die
+  # Typen ohnehin mit — hier steht es trotzdem, weil ein Tippfehler dann nach
+  # einer Minute auffällt statt nach dem kompletten Image-Build, und weil echte
+  # Tests hier hinkämen (bisher hat das Projekt keine).
+  #
+  # Frontend und Server brauchen getrennte Läufe: der Server kompiliert nach
+  # CommonJS und hat eine eigene lib-Liste (siehe ADR-007).
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Typprüfung Frontend
+        run: npx tsc --noEmit
+      - name: Typprüfung Server
+        run: npx tsc -p tsconfig.server.json --noEmit
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/brandeis-consulting/blog-editor:latest
+            ghcr.io/brandeis-consulting/blog-editor:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stack „blog-editor" ausrollen (Portainer-Webhook)
+        run: bash .github/scripts/portainer-deploy.sh blog-editor PORTAINER_WEBHOOK_BLOG_EDITOR '${{ secrets.PORTAINER_WEBHOOK_BLOG_EDITOR }}'
