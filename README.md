@@ -71,7 +71,18 @@ blog-editor.brandeis.de {
 
 Danach `caddy validate --config /etc/caddy/Caddyfile` und `systemctl reload caddy`.
 
-**2. Portainer-Stack** (Stacks → Add stack → Repository), Name `blog-editor`, Compose-Pfad `docker-compose.yml`. Das ghcr-Paket ist privat — die Registry-Zugangsdaten sind in Portainer bereits hinterlegt (crm und hub nutzen dieselben).
+**2. Portainer-Stack** (Stacks → Add stack → Repository), Name `blog-editor`, Compose-Pfad `docker-compose.yml`. Unter **GitOps Updates** (in älteren Portainer-Versionen „Automatic updates") den Mechanismus **Webhook** wählen.
+
+Zwei Zugänge, die man nicht verwechseln sollte:
+
+| Wofür | Wo hinterlegt | Läuft ab |
+| --- | --- | --- |
+| Das **Repo** klonen | im Stack unter Authentication: GitHub-Benutzername + fine-grained PAT, Scope `Contents: Read` auf `strapi-blog-editor` | **15.09.2027** (366 Tage, angelegt am 14.09.2026) |
+| Das **Image** ziehen | Portainer → Registries → `ghcr.io`, dieselben Zugangsdaten wie crm und hub | – |
+
+⏳ **Zum Ablaufdatum des PAT:** Läuft es ab, bleibt der laufende Container unangetastet — kaputt ist dann nur das Ausrollen. Symptom ist also „ein Push bewirkt nichts", nicht „der Editor ist weg". GitHub warnt vorher per Mail. Ersetzen: neues Token erzeugen und im Stack unter Authentication eintragen.
+
+Das ghcr-Paket ist privat. Neue Pakete erben die Zugriffsrechte bestehender **nicht** automatisch — scheitert ein Pull mit „denied", ist das die Ursache, und der Fix liegt in GitHub unter Package settings, nicht in Portainer.
 
 **3. Webhook als GitHub-Secret.** Im Stack die Webhook-URL kopieren und unter Settings → Secrets and variables → Actions als `PORTAINER_WEBHOOK_BLOG_EDITOR` hinterlegen.
 
