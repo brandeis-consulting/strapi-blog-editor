@@ -25,10 +25,26 @@ async function run<T>(res: Response, fn: () => Promise<T>): Promise<void> {
   }
 }
 
+// Auswahllisten für den Feld-Editor. Vor "/:id" registriert, sonst würde diese
+// Route "meta" als documentId auffassen.
+postsRouter.get("/meta/categories", (req, res) =>
+  run(res, () => client(req).listCategories()),
+);
+postsRouter.get("/meta/authors", (req, res) => run(res, () => client(req).listAuthors()));
+postsRouter.get("/meta/media", (req, res) =>
+  run(res, () => client(req).listMediaImages(typeof req.query.q === "string" ? req.query.q : undefined)),
+);
+postsRouter.get("/meta/slugs", (req, res) => run(res, () => client(req).listSlugs()));
+
 postsRouter.get("/", (req, res) => run(res, () => client(req).listPosts()));
 postsRouter.get("/:id", (req, res) => run(res, () => client(req).getPost(req.params.id)));
 postsRouter.put("/:id", (req, res) =>
-  run(res, () => client(req).saveDraft(req.params.id, req.body.content)),
+  run(res, () =>
+    client(req).saveDraft(req.params.id, {
+      content: req.body?.content,
+      fields: req.body?.fields,
+    }),
+  ),
 );
 postsRouter.post("/:id/publish", (req, res) =>
   run(res, () => client(req).publish(req.params.id, req.body?.overridePublishDate)),

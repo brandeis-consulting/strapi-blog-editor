@@ -12,6 +12,8 @@
  */
 
 const POST_UID = "api::ba-blog-post.ba-blog-post";
+const CATEGORY_UID = "api::ba-blog-category.ba-blog-category";
+const AUTHOR_UID = "api::user-profile.user-profile";
 
 export interface PostSummary {
   documentId: string;
@@ -34,7 +36,7 @@ export interface PostDetail extends PostSummary {
   HeroImage?: { id?: number; url: string } | null;
   Author?: { documentId?: string; Firstname: string; Lastname: string } | null;
   ba_blog_categories?: Array<{ documentId?: string; Slug: string }>;
-  Links?: Array<{ Title: string; Url: string; Subtext: string | null }>;
+  Links?: Array<{ id?: number; Title: string; Url: string; Subtext: string | null }>;
   translation_related_posts?: Array<{ documentId?: string; Slug: string; Language?: string | null }>;
 }
 
@@ -60,6 +62,71 @@ export interface TranslationInput extends NewPostInput {
   heroImageId: number | null;
   /** documentId des deutschen Originals — für translation_related_posts. */
   sourceId: string;
+}
+
+/**
+ * Die Felder, die der Editor schreiben darf. Bewusst eine Whitelist statt eines
+ * durchgereichten Bodys: alles, was hier nicht steht (createdAt, publishedAt,
+ * translation_related_posts, …) gehört Strapi bzw. eigenen Workflows.
+ *
+ * Relationen stehen hier als IDs, nicht als Objekte — das ist die Form, die
+ * das Content-Manager-API beim Schreiben erwartet (siehe createTranslation).
+ */
+export interface PostFields {
+  Title: string;
+  Slug: string;
+  Excerpt: string | null;
+  Language: string;
+  TemplateType: string;
+  IsCareer: boolean;
+  OverridePublishDate: boolean;
+  PublishDate: string | null;
+  /** Numerische Datei-ID des HeroImage, null = kein Bild. */
+  heroImageId: number | null;
+  /** documentId des Autors, null = keiner. */
+  authorId: string | null;
+  /** documentIds der Kategorien. */
+  categoryIds: string[];
+  /** `id` erhält bestehende Component-Zeilen; fehlt bei neuen Einträgen. */
+  Links: Array<{ id?: number; Title: string; Url: string; Subtext: string | null }>;
+}
+
+export const LANGUAGES = ["Deutsch", "Englisch"] as const;
+export const TEMPLATE_TYPES = ["Standard", "Cheatsheet", "Newsletter"] as const;
+
+export interface CategoryOption {
+  documentId: string;
+  Slug: string;
+  Name: string;
+  /**
+   * Name je Locale. Die Vorschau beschriftet Kategorien in der Sprache des
+   * Beitrags — genau wie categoryLanguageMapping in gatsby-node.js.
+   */
+  names: Record<string, string>;
+}
+
+export interface AuthorOption {
+  documentId: string;
+  Firstname: string;
+  Lastname: string;
+  /**
+   * Steuern auf der Live-Site, ob der Autorenname zum Trainer- bzw.
+   * Autorenprofil verlinkt. Die Vorschau braucht sie, um dieselbe Meta-Zeile
+   * zu rendern wie die echte Seite.
+   */
+  ShowTrainerCard?: boolean;
+  ShowAuthorCard?: boolean;
+}
+
+export interface MediaImage {
+  id: number;
+  name: string;
+  url: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  /** Vorschaugröße aus Strapi, falls vorhanden — spart Traffic im Picker. */
+  thumbnailUrl?: string;
 }
 
 export interface UploadedFile {
@@ -210,14 +277,184 @@ export class StrapiClient {
     return data.data ?? null;
   }
 
-  /** Save changes as a draft. The live Gatsby site is NOT affected. */
-  async saveDraft(documentId: string, content: string): Promise<PostDetail> {
+  /**
+   * Save changes as a draft. The live Gatsby site is NOT affected.
+   *
+   * `content` und `fields` sind einzeln optional: der Editor schickt nur, was
+   * sich geändert hat. Beides zusammen ergibt trotzdem genau **einen** PUT —
+   * zwei Requests würden bei einem Fehler dazwischen einen halb gespeicherten
+   * Beitrag hinterlassen.
+   */
+  async saveDraft(
+    documentId: string,
+    patch: { content?: string; fields?: PostFields },
+  ): Promise<PostDetail> {
+    const body: Record<string, unknown> = {};
+    if (patch.content !== undefined) body.Content = patch.content;
+
+    if (patch.fields) {
+      const f = patch.fields;
+      body.Title = f.Title;
+      body.Slug = f.Slug;
+      body.Excerpt = f.Excerpt;
+      body.Language = f.Language;
+      body.TemplateType = f.TemplateType;
+      body.IsCareer = f.IsCareer;
+      body.OverridePublishDate = f.OverridePublishDate;
+      // Strapi blendet PublishDate aus, wenn OverridePublishDate false ist
+      // (conditions.visible im Schema). Der Wert bleibt dabei erhalten — wir
+      // machen es genauso, damit ein versehentliches Aus- und Wiedereinschalten
+      // das Datum nicht verliert.
+      body.PublishDate = f.PublishDate;
+      body.HeroImage = f.heroImageId;
+      body.Author = f.authorId;
+      body.ba_blog_categories = f.categoryIds;
+      body.Links = f.Links;
+    }
+
+    if (Object.keys(body).length === 0) {
+      const current = await this.getPost(documentId);
+      if (!current) throw new Error(`Beitrag ${documentId} nicht gefunden.`);
+      return current;
+    }
+
     const updated = await this.request<SingleEnvelope>(
       "PUT",
       `/content-manager/collection-types/${POST_UID}/${documentId}`,
-      { Content: content },
+      body,
     );
     return updated.data;
+  }
+
+  /**
+   * Kategorien mitsamt ihren Übersetzungen.
+   *
+   * Wird **je Locale einzeln** abgefragt und über die documentId zusammengeführt.
+   * Der naheliegende Weg — `populate[localizations]` wie in der Gatsby-Query —
+   * funktioniert auf dem Content-Manager-Listenendpunkt nicht: er liefert
+   * kommentarlos nur die Standardsprache, und die englischen Beiträge hätten
+   * deutsche Kategorie-Labels. In Strapi v5 teilen sich alle Sprachfassungen
+   * eines Dokuments dieselbe documentId, deshalb trägt das Zusammenführen.
+   *
+   * Die Locale-Liste kommt aus der Language-Enumeration des Blogposts: mehr
+   * Sprachen als die kann ein Beitrag ohnehin nicht haben.
+   */
+  async listCategories(): Promise<CategoryOption[]> {
+    const fetchLocale = async (locale: string) => {
+      const query = new URLSearchParams({
+        page: "1",
+        pageSize: "200",
+        sort: "Name:ASC",
+        locale,
+      });
+      const data = await this.request<{
+        results: Array<{ documentId: string; Slug: string; Name: string; locale?: string | null }>;
+      }>("GET", `/content-manager/collection-types/${CATEGORY_UID}?${query}`);
+      return data.results;
+    };
+
+    // Die Standardsprache bestimmt Reihenfolge und Fallback-Namen; schlägt eine
+    // Übersetzung fehl, bleibt die Auswahl trotzdem benutzbar.
+    const [de, en] = await Promise.all([
+      fetchLocale("de"),
+      fetchLocale("en").catch(() => []),
+    ]);
+
+    const byId = new Map<string, CategoryOption>();
+    for (const c of de) {
+      byId.set(c.documentId, {
+        documentId: c.documentId,
+        Slug: c.Slug,
+        Name: c.Name,
+        names: { de: c.Name },
+      });
+    }
+    for (const c of en) {
+      const existing = byId.get(c.documentId);
+      if (existing) existing.names.en = c.Name;
+      else {
+        byId.set(c.documentId, {
+          documentId: c.documentId,
+          Slug: c.Slug,
+          Name: c.Name,
+          names: { en: c.Name },
+        });
+      }
+    }
+    return [...byId.values()];
+  }
+
+  /** Autoren für die Auswahl. Sortiert nach Nachname, wie im Admin-Panel. */
+  async listAuthors(): Promise<AuthorOption[]> {
+    const query = new URLSearchParams({
+      page: "1",
+      pageSize: "200",
+      sort: "Lastname:ASC",
+    });
+    const data = await this.request<{
+      results: Array<{
+        documentId: string;
+        Firstname: string;
+        Lastname: string;
+        ShowTrainerCard?: boolean;
+        ShowAuthorCard?: boolean;
+      }>;
+    }>("GET", `/content-manager/collection-types/${AUTHOR_UID}?${query}`);
+
+    return data.results.map((a) => ({
+      documentId: a.documentId,
+      Firstname: a.Firstname,
+      Lastname: a.Lastname,
+      ShowTrainerCard: a.ShowTrainerCard ?? false,
+      ShowAuthorCard: a.ShowAuthorCard ?? false,
+    }));
+  }
+
+  /**
+   * Bilder aus der Medienbibliothek für den HeroImage-Picker.
+   *
+   * `/upload/files` antwortet je nach Strapi-Version mit einem nackten Array
+   * oder mit `{ results, pagination }` — beides wird hier abgefangen, damit ein
+   * Minor-Update den Picker nicht stillschweigend leert.
+   */
+  async listMediaImages(search?: string): Promise<MediaImage[]> {
+    // Flache page/pageSize-Parameter: das Upload-Plugin wertet die
+    // pagination[...]-Schreibweise nicht aus und liefert dann stumm nur die
+    // ersten 10 Dateien.
+    const query = new URLSearchParams({
+      "filters[mime][$contains]": "image",
+      sort: "createdAt:DESC",
+      page: "1",
+      pageSize: "60",
+    });
+    if (search) query.set("_q", search);
+
+    const raw = await this.request<
+      { results?: unknown[] } | unknown[]
+    >("GET", `/upload/files?${query}`);
+
+    const list = (Array.isArray(raw) ? raw : (raw.results ?? [])) as Array<{
+      id: number;
+      name: string;
+      url: string;
+      mime: string;
+      width?: number;
+      height?: number;
+      formats?: { thumbnail?: { url?: string }; small?: { url?: string } };
+    }>;
+
+    const absolute = (u?: string): string | undefined =>
+      !u ? undefined : u.startsWith("http") ? u : `${this.baseUrl}${u}`;
+
+    return list.map((f) => ({
+      id: f.id,
+      name: f.name,
+      url: absolute(f.url)!,
+      mime: f.mime,
+      width: f.width,
+      height: f.height,
+      thumbnailUrl: absolute(f.formats?.thumbnail?.url ?? f.formats?.small?.url),
+    }));
   }
 
   /**

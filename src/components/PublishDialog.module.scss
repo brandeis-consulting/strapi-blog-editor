@@ -146,3 +146,35 @@
   border-radius: 0.4rem;
   font-size: 0.85rem;
 }
+
+// Geänderte Felder und blockierende Verstöße. Stehen über dem Zeilen-Diff,
+// weil sie die Entscheidung "speichern oder nicht" stärker beeinflussen als
+// eine einzelne Textzeile.
+.fieldChanges, .blocked {
+  margin: 1rem 1.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.4rem;
+  font-size: 0.82rem;
+
+  strong { display: block; margin-bottom: 0.3rem; font-size: 0.78rem; }
+
+  ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+}
+
+.fieldChanges {
+  background: #eaf2fa;
+  color: #0c3c60;
+  border: 1px solid #cfe0ef;
+}
+
+.blocked {
+  background: #fde0e0;
+  color: #7f1d1d;
+  border: 1px solid #f2bcbc;
+}

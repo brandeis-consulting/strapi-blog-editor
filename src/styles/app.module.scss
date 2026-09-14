@@ -234,3 +234,24 @@
     padding: 0.1rem 0.3rem;
   }
 }
+
+// Feldfehler in der Topbar. Blockiert das Speichern, deshalb rot statt orange
+// wie der Ungespeichert-Marker.
+.invalid {
+  color: #ff9b9b;
+  font-size: 0.75rem;
+  font-weight: 500;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+// Kleiner Marker am Felder-Button, wenn dort Ungespeichertes liegt.
+.dot {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: 0.35rem;
+  border-radius: 50%;
+  background: #e46c0a;
+  vertical-align: middle;
+}

@@ -1,6 +1,10 @@
 import type {
+  AuthorOption,
+  CategoryOption,
+  MediaImage,
   NewPostInput,
   PostDetail,
+  PostFields,
   PostSummary,
   TranslationResult,
   UploadedFile,
@@ -39,14 +43,34 @@ async function api<T>(
   return (await res.json()) as T;
 }
 
+/** Laufzeit-Konfiguration vom eigenen Server (u.a. die Vorschau-URL). */
+export interface AppConfig {
+  previewUrl: string;
+}
+
 export const strapi = {
+  getConfig: (): Promise<AppConfig> => api("GET", "/api/config"),
   listPosts: (): Promise<PostSummary[]> => api("GET", "/api/posts"),
   getPost: (id: string): Promise<PostDetail | null> => api("GET", `/api/posts/${id}`),
-  saveDraft: (id: string, content: string): Promise<PostDetail> =>
-    api("PUT", `/api/posts/${id}`, { content }),
+  /**
+   * Speichert Inhalt und/oder Felder als Entwurf. Beide Teile sind optional —
+   * der Editor schickt nur, was sich geändert hat, und der Server macht daraus
+   * genau einen PUT gegen Strapi.
+   */
+  saveDraft: (
+    id: string,
+    patch: { content?: string; fields?: PostFields },
+  ): Promise<PostDetail> => api("PUT", `/api/posts/${id}`, patch),
   publish: (id: string, overridePublishDate: boolean): Promise<PostDetail> =>
     api("POST", `/api/posts/${id}/publish`, { overridePublishDate }),
   createPost: (input: NewPostInput): Promise<PostDetail> => api("POST", "/api/posts", input),
+
+  listCategories: (): Promise<CategoryOption[]> => api("GET", "/api/posts/meta/categories"),
+  listAuthors: (): Promise<AuthorOption[]> => api("GET", "/api/posts/meta/authors"),
+  listSlugs: (): Promise<string[]> => api("GET", "/api/posts/meta/slugs"),
+  listMedia: (search?: string): Promise<MediaImage[]> =>
+    api("GET", `/api/posts/meta/media${search ? `?q=${encodeURIComponent(search)}` : ""}`),
+
   /**
    * Übersetzt einen Beitrag ins Englische und legt ihn als Entwurf an.
    * Der API-Key geht nur an das eigene Backend und wird dort nicht gespeichert.

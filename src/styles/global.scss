@@ -1,4 +1,12 @@
-@use "./gatsby/globalStyles.scss";
+/**
+ * Basisstile der Editor-Oberfläche.
+ *
+ * Bis zur iframe-Vorschau lag hier ein `@use` auf einer 1:1 aus dem
+ * Gatsby-Projekt kopierten globalStyles.scss (ADR-004). Die Vorschau rendert
+ * inzwischen im iframe auf der echten Site, damit ist die Kopie entfallen —
+ * und mit ihr die Drift. Was von ihr noch auf die Oberfläche wirkte (Textfarbe
+ * und Schriftschnitt am body), steht jetzt hier explizit.
+ */
 
 html, body, #root {
   margin: 0;
@@ -10,6 +18,8 @@ html, body, #root {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-weight: 500;
+  color: #1c2333;
   -webkit-font-smoothing: antialiased;
 }
 

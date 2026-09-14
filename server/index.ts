@@ -10,7 +10,31 @@ import { uploadRouter } from "./routes/upload";
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = path.resolve(__dirname, "..", "dist");
 
+/**
+ * Die Vorschauseite im Gatsby-Projekt (brandeis-academy/src/pages/blog-preview.js).
+ * Der Editor bettet sie als iframe ein und schickt ihr den Entwurf per
+ * postMessage — dadurch rendert die Vorschau mit denselben Komponenten wie die
+ * Live-Site.
+ *
+ * Zur Laufzeit konfigurierbar (nicht über Vite eingebacken), damit ein Wechsel
+ * auf eine Staging-Site oder ein lokales `gatsby develop` kein neues Image
+ * braucht. Der Wert wird über /api/config ans Frontend gereicht.
+ */
+const PREVIEW_URL = process.env.PREVIEW_URL ?? "https://www.brandeis.de/blog-preview/";
+
+/** Origin der Vorschau — muss in der CSP als frame-src erlaubt sein. */
+function previewOrigin(): string | null {
+  try {
+    return new URL(PREVIEW_URL).origin;
+  } catch {
+    console.warn(`PREVIEW_URL ist keine gültige URL: ${PREVIEW_URL}`);
+    return null;
+  }
+}
+
 const app = express();
+
+const frameSrc = ["'self'", previewOrigin()].filter((v): v is string => Boolean(v));
 
 app.use(
   helmet({
@@ -19,6 +43,9 @@ app.use(
       directives: {
         "img-src": ["'self'", "data:", "https://cms.brandeis.de"],
         "connect-src": ["'self'"],
+        // Ohne diese Direktive blockiert die Helmet-Voreinstellung
+        // (frame-src 'self') den Vorschau-iframe.
+        "frame-src": frameSrc,
       },
     },
   }),
@@ -30,6 +57,12 @@ app.use(cookieParser());
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true });
 });
+
+/** Laufzeit-Konfiguration fürs Frontend. Bewusst ohne Auth: kein Geheimnis. */
+app.get("/api/config", (_req, res) => {
+  res.json({ previewUrl: PREVIEW_URL });
+});
+
 app.use("/api/auth", authRouter);
 app.use("/api/posts", postsRouter);
 app.use("/api/translate", translateRouter);
@@ -42,4 +75,5 @@ app.get(/^(?!\/api\/).*/, (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Blog editor listening on :${PORT}`);
+  console.log(`Vorschau-iframe: ${PREVIEW_URL}`);
 });

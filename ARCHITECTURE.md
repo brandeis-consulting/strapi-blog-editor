@@ -19,7 +19,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Blogposts aus Strapi CMS (`cms.brandeis.de`) laden
 - Liste aller Posts, **chronologisch sortiert, gruppiert nach Jahr und Monat**
 - Markdown im Editor anzeigen und bearbeiten
-- **Live-Preview** im gleichen visuellen Stil wie die Live-Site (`brandeis.de/blog/...`)
+- **Live-Preview** — seit [ADR-014](#adr-014-vorschau-als-iframe-auf-die-gatsby-site) nicht mehr „im gleichen Stil", sondern als iframe auf der Live-Site selbst
 - Änderungen zurück ins CMS speichern können
 - Hintergrund: Gatsby-Site rebuildet ~5 Minuten pro Änderung. Tool soll Iteration auf Sekunden bringen.
 
@@ -36,6 +36,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 
 ### Inhalte & Workflow
 - **Neuen Post anlegen** (Title + Slug + leerer Content)
+- **Feld-Editor** (Strg+E) für Titel, Slug, Kurzbeschreibung, Sprache, Template, Autor, Kategorien, Beitragsbild, Karriere-Flag, Veröffentlichungsdatum und Links — siehe [ADR-013](#adr-013-feld-editor-schreibt-eine-whitelist-und-liest-danach-neu)
 - **Save vs. Publish trennen**: Nur Draft oder Draft + Live veröffentlichen
 - **Diff-Dialog** vor jedem Save zeigt zeilenweise +/− Änderungen
 - **Veröffentlichen ohne Änderungen** möglich (für nachträgliches Publish eines gespeicherten Drafts)
@@ -64,9 +65,9 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 │  ├── AppShell.tsx         Hauptlayout, States, Handlers        │
 │  ├── api/                 Strapi-Client (fetch → /api/*)       │
 │  ├── components/          Login, PostList, Editor, Preview, …  │
-│  ├── hooks/               useAuth, usePosts, useScrollSync, …  │
-│  ├── render/              react-markdown-Pipeline aus Gatsby   │
-│  └── styles/gatsby/       SCSS 1:1 aus Gatsby-Repo kopiert     │
+│  ├── hooks/               useAuth, usePosts, useIframeScroll…  │
+│  ├── lib/                 Feldlogik + Vorschau-Payload         │
+│  └── render/annotate.ts   Diff-Marks im Markdown               │
 └────────────────────────────────────────────────────────────────┘
                               │
                               ▼ HTTP (Cookie)
@@ -133,9 +134,9 @@ Internet
 2. `Strg+S` oder Button öffnet `PublishDialog` mit Zeilen-Diff
 3. User wählt „Nur Entwurf speichern" oder „Speichern & veröffentlichen"
 4. **Save-Logik:**
-   - Wenn dirty: `PUT /api/posts/<id>` → Server → Strapi `/content-manager/collection-types/<uid>/<id>` mit `{ Content }`
+   - Wenn dirty: `PUT /api/posts/<id>` mit `{ content?, fields? }` → Server → **ein** Strapi-PUT auf `/content-manager/collection-types/<uid>/<id>`. Beide Teile sind einzeln optional; zusammen ergeben sie trotzdem nur einen Request (ein Fehler dazwischen hinterließe sonst einen halb gespeicherten Beitrag)
    - Wenn Modus=publish: zusätzlich `POST /api/posts/<id>/publish` → Strapi `.../actions/publish`
-   - Response (PostDetail) ersetzt den Buffer-Eintrag, dirty wird false
+   - Anschließend wird der Beitrag per `getPost` **neu geladen** und ersetzt den Buffer-Eintrag, dirty wird false (siehe [ADR-013](#adr-013-feld-editor-schreibt-eine-whitelist-und-liest-danach-neu))
 
 ### Datenfluss beim Bild-Paste
 
@@ -221,7 +222,7 @@ Die Editoren haben ohnehin Admin-Accounts (sie pflegen Inhalte im Admin-Panel). 
 
 ### ADR-004: SCSS und Highlight-Sprachen aus Gatsby kopieren (statt nachbauen)
 
-**Status:** akzeptiert mit bekanntem Risiko
+**Status:** ~~akzeptiert mit bekanntem Risiko~~ — **abgelöst durch [ADR-014](#adr-014-vorschau-als-iframe-auf-die-gatsby-site)**. Das hier beschriebene Drift-Risiko ist eingetreten (siehe dort). Die Kopien sind entfernt; der Abschnitt bleibt als Begründung stehen, warum der Weg zunächst gewählt wurde.
 
 **Kontext:** Die Vorschau soll **pixelgleich** zur Live-Site sein. Gatsby-Repo nutzt:
 - `globalStyles.scss` (1164 Zeilen, alle Custom-Klassen wie `.info-box`, `.cs-*`, `.col`, …)
@@ -356,6 +357,64 @@ Zwei technische Randbedingungen entscheiden mit:
 
 **Unterschied, der bleiben darf:** Der Batch nutzt die Message Batches API (günstiger, dafür Wartezeit von Minuten), der Editor einen synchronen Aufruf — hier zählt die Antwortzeit.
 
+### ADR-013: Feld-Editor schreibt eine Whitelist und liest danach neu
+
+**Status:** akzeptiert
+
+**Kontext:** Bis dahin war `Content` das einzige schreibbare Feld — Autor, Beitragsbild, Datum, Kategorien und Template mussten im Strapi-Admin gepflegt werden. Beim Freilegen der übrigen Felder stellten sich drei Fragen.
+
+**Entscheidung 1 — Whitelist statt durchgereichtem Body.** `saveDraft` nimmt ein `PostFields`-Objekt und baut daraus explizit den Strapi-Body. Ein durchgereichter Request-Body wäre kürzer, ließe aber jeden angemeldeten Nutzer beliebige Attribute setzen (`publishedAt`, `createdBy`, `translation_related_posts`). Letzteres wird von der Übersetzungsfunktion gepflegt und darf hier nicht versehentlich überschrieben werden.
+
+**Entscheidung 2 — nach dem Schreiben `getPost` statt der PUT-Antwort.** Das Content-Manager-API populiert Relationen beim Schreiben nicht zwingend in derselben Form wie unser `getPost` (das die `populate`-Parameter explizit setzt). Übernähmen wir die PUT-Antwort direkt in den Buffer, stünde der Beitrag danach womöglich ohne Autor und Kategorien da — und wäre sofort wieder als „geändert" markiert, weil `fieldsFromPost` andere Werte liefert als vor dem Speichern. Ein zusätzlicher GET pro Speichervorgang ist der Preis dafür, dass der Buffer garantiert dem entspricht, was ein frischer Ladevorgang ergäbe.
+
+**Entscheidung 3 — Relationen als IDs im Buffer.** `PostFields` trägt `authorId`, `categoryIds` und `heroImageId`, nicht die Objekte — das ist die Form, die Strapi beim Schreiben erwartet (bewährt in `createTranslation`). Die Bild-URL, die Vorschau und Feld-Editor trotzdem brauchen, liegt in einem separaten Nachschlage-Cache (`heroUrls` in `AppShell`) statt ein zweites Mal im Buffer, wo sie mit der ID auseinanderlaufen könnte.
+
+**Entscheidung 4 — Component-`id`s der Links werden mitgeführt.** `BlogLink` trägt ein optionales `id`. Ohne dieses Feld löscht Strapi bei jedem Speichern alle Link-Zeilen und legt sie neu an; mit ihm aktualisiert es die bestehende Zeile. Neue Einträge aus dem Editor haben keins — das ist der Normalfall und genau richtig so.
+
+**Gegen das echte CMS geprüft** (28.08.2026, Testbeitrag `zz-editor-test`): alle Feldtypen, das Setzen *und* Leeren der drei Relationen, Links anlegen/ändern/entfernen mit id-Erhaltung, sowie der Publish mit `OverridePublishDate` aus dem Feld-Editor.
+
+**Konsequenzen:**
+- ✓ Kein Wechsel mehr ins Admin-Panel für die Standardfelder
+- ✓ Dirty-Erkennung deckt Inhalt *und* Felder ab (`fieldsEqual` normalisiert die Kategorie-Reihenfolge, die bedeutungslos ist)
+- ✓ Die Vorschau zeigt ungespeicherte Feldänderungen sofort — sie liest aus dem Buffer, nicht aus dem Serverstand
+- ✗ Ein neues Strapi-Feld muss an **drei** Stellen nachgezogen werden: `PostFields` (beidseitig) und die Whitelist in `saveDraft`
+- ✗ Ein GET mehr pro Speichervorgang
+
+**Zwei Vorschau-Fehler, die dabei mit aufgefallen sind** (beide vorher falsch, jetzt an `gatsby-node.js` angeglichen):
+- Das Datum kam aus `createdAt`. Gatsby überschreibt `createdAt` mit `PublishDate`, sobald eines gesetzt ist — bei jedem Beitrag mit gesetztem Datum stand in der Vorschau das falsche.
+- `CATEGORY_LABELS` in `Preview.tsx` war ein leeres Objekt, die Vorschau zeigte immer den Slug. Die Labels kommen jetzt aus den `localizations` der Kategorie, in der Sprache des Beitrags — dieselbe Auswertung wie `categoryLanguageMapping`.
+
+### ADR-014: Vorschau als iframe auf die Gatsby-Site
+
+**Status:** akzeptiert
+
+**Kontext:** Die Vorschau war ein Nachbau: kopiertes SCSS (ADR-004) plus eine nachgebaute react-markdown-Pipeline plus ein von Hand nachgezogenes Standard-Layout in `Preview.tsx`. Das Drift-Risiko aus ADR-004 hat sich eingelöst, und zwar deutlicher als erwartet:
+
+- Die Blogpost-Klassen (`.blog-post`, `.post-attribute-line`, `.cat-tag`, …) waren im Gatsby-Repo nach `components/blog-templates/default-template.module.scss` umgezogen. Die gleichnamige `blogLayout.module.scss` enthielt dort nur noch die Blog-*Übersicht* — ein bloßes Nachkopieren hätte die Vorschau **entstylt**.
+- `rehypeMarkdownAttributes` (`{#id}` / `{.class}`) fehlte im Editor komplett. Newsletter-Beiträge zeigten die geschweiften Klammern als Text.
+- Von drei Templates (Standard, Cheatsheet, Newsletter) kannte die Vorschau nur eines.
+- Datum und Kategorie-Labels waren falsch (siehe ADR-013).
+
+Damit war klar: Ein Sync-Script hätte das nicht gelöst, weil nicht nur der Inhalt, sondern die Ablagestruktur driftet.
+
+**Verworfene Alternative — gemeinsames Render-Paket.** Pipeline, Styles und Artikel-Rümpfe in ein npm-Paket, das beide Projekte konsumieren. Löst die Drift ebenfalls, kostet aber eine dauerhafte *Portabilitätssteuer*: der Renderer müsste in Gatsbys webpack **und** in Vite kompilieren. Jedes Gatsby-spezifische Detail im Artikelkörper (`gatsby-plugin-image`, `Link`, `graphql`) bräche dann den Editor. Dazu käme Versionierung über zwei Repos hinweg — und npm kann keine Unterordner aus einem git-Repo installieren, was einen Publish-Schritt erzwungen hätte.
+
+**Entscheidung:** Die Vorschau rendert im **iframe auf der Gatsby-Site** (`/blog-preview`). Der Editor schickt Beitrag und Markdown per `postMessage`; die Seite rendert damit dieselben Komponenten wie die Live-Seite.
+
+Dafür wurde in Gatsby der Artikelkörper je Template herausgelöst (`default-body.js`, `cheatsheet-body.js`, `newsletter-body.js`). Die echten Templates legen Layout, SEO, Sprachumschalter und NewsSlider darum, die Vorschauseite nur `.layout-main > .layout-center`. Diese Entflechtung ist deutlich flacher als eine Extraktion in ein Paket: sie bleibt in Gatsbys Buildsystem, also gibt es keine Portabilitätssteuer.
+
+**Konsequenzen:**
+- ✓ Drift ist **konstruktiv ausgeschlossen** — Vorschau und Live-Seite sind derselbe Code
+- ✓ Cheatsheet und Newsletter werden korrekt dargestellt, `{#id}`/`{.class}` funktioniert, ABAP/CDS/BDL-Highlighting kommt von der Site
+- ✓ Aus dem Editor sind ~1900 Zeilen kopiertes SCSS, die nachgebaute Markdown-Pipeline und fünf Dependencies (`react-markdown`, `remark-gfm`, `rehype-highlight`, `rehype-raw`, `highlight.js`) entfallen; Hauptbundle 1377 kB → 848 kB
+- ✓ Der Entwurf geht bei jedem Tastendruck hinüber — gespeichert werden muss nichts (die naheliegende Nachbildung des „Strapi-Vorschau"-Buttons hätte nur den Serverstand gezeigt)
+- ✗ **Ohne erreichbare Gatsby-Site keine Vorschau.** Bewusst kein lokaler Fallback: ein veralteter Nachbau wäre schlimmer als eine ehrliche Fehlermeldung, weil er still Falsches zeigte
+- ✗ Template- und CSS-Änderungen erscheinen erst nach dem nächsten Site-Build. Für die Redaktion irrelevant — der Editor verwaltet Inhalte, nicht Templates
+- ✗ Zwei neue Kopplungen zwischen den Repos: `frame-ancestors` in `static/_headers` muss den Editor erlauben, und `src/lib/previewPayload.ts` muss zur Beitragsstruktur der Bodies passen
+- ✗ Scroll-Sync läuft über Nachrichten statt direkt (`useIframeScrollSync`), weil das iframe cross-origin ist
+
+**Sicherheit:** Beide Seiten prüfen `event.origin` und senden nie an `"*"`. Die Vorschauseite akzeptiert nur die Origins des Editors (plus ihren eigenen), der Editor nur den Origin der Vorschau. `frame-src` in der Editor-CSP wird aus `PREVIEW_URL` abgeleitet, damit beides nicht auseinanderlaufen kann.
+
 ## Lessons Learned
 
 Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben nicht überraschen.
@@ -372,59 +431,67 @@ Konkrete Stolpersteine, die mich Zeit gekostet haben — damit dich dieselben ni
 
 5. **documentId statt id**: In Strapi v5 wird der externe Identifier `documentId` genannt. In GraphQL: `filters: { documentId: { eq: "..." } }`. In Content-Manager-URLs: `/content-manager/collection-types/<uid>/<documentId>`. Verwechsle das nicht mit der internen DB-`id`.
 
-6. **Strapi `/upload` mit Admin-JWT**: Funktioniert problemlos. multipart/form-data mit Feldname `files` (auch für Single-Upload). Response ist Array mit `[{ id, url, name, mime, ... }]`. URL ist relativ — manuell `baseUrl` davorhängen.
+6. **`populate[localizations]` greift auf dem Content-Manager-*Listen*endpunkt nicht.** Die Gatsby-Query holt Kategorie-Übersetzungen so; `/content-manager/collection-types/<uid>?populate[localizations]=true` liefert dagegen kommentarlos **nur die Standardsprache** — kein Fehler, kein leeres Feld, die Übersetzungen fehlen einfach. Symptom: englische Beiträge zeigen deutsche Kategorie-Labels. Lösung: je Locale einzeln abfragen (`?locale=de`, `?locale=en`) und über die `documentId` zusammenführen — die ist in Strapi v5 über alle Sprachfassungen eines Dokuments identisch.
+
+7. **`/upload/files` ignoriert die `pagination[...]`-Schreibweise.** Mit `pagination[pageSize]=60` kommen stumm die ersten **10** Dateien. Das Upload-Plugin will flaches `page`/`pageSize`. Kein Fehler, keine Warnung — nur eine zu kurze Liste, was man leicht für „so wenig ist halt drin" hält.
+
+8. **Der Content-Manager-GET liefert immer den Entwurf.** Nach einem erfolgreichen Publish ist `publishedAt` in der Antwort von `GET /content-manager/collection-types/<uid>/<documentId>` weiterhin `null` — das ist korrekt, nicht kaputt: Draft und Published sind in v5 zwei Fassungen desselben Dokuments, und der GET liefert ohne `?status=published` die Entwurfsfassung. Ob ein Publish gewirkt hat, sieht man an der **Antwort der Publish-Aktion**, nicht an einem anschließenden GET.
+
+9. **Repeatable Components: `id` mitschicken.** Die Einträge von `Links` tragen eine `id`. Schickt man sie beim PUT ohne diese ids zurück, löscht Strapi die Zeilen und legt sie neu an (neue ids). Inhaltlich richtig, aber unnötig — mit `id` aktualisiert Strapi die bestehende Zeile.
+
+10. **Strapi `/upload` mit Admin-JWT**: Funktioniert problemlos. multipart/form-data mit Feldname `files` (auch für Single-Upload). Response ist Array mit `[{ id, url, name, mime, ... }]`. URL ist relativ — manuell `baseUrl` davorhängen.
 
 ### Vite / Build-Toolchain
 
-7. **CSS-Modules brauchen `localsConvention`**: Gatsby benutzt camelCase-Lookup (`Styles.blogPost` → `.blog-post`-Klasse). Vite-Default ist beides (kebab + camel), aber inkonsistent. Wir setzen `localsConvention: "camelCaseOnly"`.
+11. **CSS-Modules brauchen `localsConvention`**: Gatsby benutzt camelCase-Lookup (`Styles.blogPost` → `.blog-post`-Klasse). Vite-Default ist beides (kebab + camel), aber inkonsistent. Wir setzen `localsConvention: "camelCaseOnly"`.
 
-8. **SCSS-Module mit `:global()`**: `@use "x" as *` und `:global(.task-list-item)` funktionieren mit dart-sass und Vite — aber Vite muss mit `api: "modern-compiler"` konfiguriert sein, sonst kommen Deprecation-Warnings.
+12. **SCSS-Module mit `:global()`**: `@use "x" as *` und `:global(.task-list-item)` funktionieren mit dart-sass und Vite — aber Vite muss mit `api: "modern-compiler"` konfiguriert sein, sonst kommen Deprecation-Warnings.
 
-9. **highlight.js-Sprachen sind CommonJS**: `module.exports = function(hljs) {…}`. Vite (ESM) kann das nicht als default-import laden. Wir haben sie zu `export default function(hljs) {…}` umgeschrieben.
+13. **highlight.js-Sprachen sind CommonJS**: `module.exports = function(hljs) {…}`. Vite (ESM) kann das nicht als default-import laden. Wir haben sie zu `export default function(hljs) {…}` umgeschrieben.
 
-10. **CodeMirror in flex-Layout scrollt nicht out-of-the-box**: Braucht `flex: 1 1 0; min-height: 0` am Wrapper UND `height: 100%` auf `.cm-editor` UND `overflow: auto` auf `.cm-scroller`. Wenn der Editor immer höher wird statt zu scrollen → fehlende `min-height: 0` in der Flex-Hierarchie.
+14. **CodeMirror in flex-Layout scrollt nicht out-of-the-box**: Braucht `flex: 1 1 0; min-height: 0` am Wrapper UND `height: 100%` auf `.cm-editor` UND `overflow: auto` auf `.cm-scroller`. Wenn der Editor immer höher wird statt zu scrollen → fehlende `min-height: 0` in der Flex-Hierarchie.
 
 ### Node / Server
 
-11. **CommonJS für den Server, nicht ESM**: Node 20 ESM-Loader verlangt `.js`-Endungen in Imports — die `tsc` nicht automatisch hinzufügt. Server ist CommonJS, daher kein Suffix-Tanz, `__dirname` direkt verfügbar.
+15. **CommonJS für den Server, nicht ESM**: Node 20 ESM-Loader verlangt `.js`-Endungen in Imports — die `tsc` nicht automatisch hinzufügt. Server ist CommonJS, daher kein Suffix-Tanz, `__dirname` direkt verfügbar.
 
-12. **`DOM`-Lib in tsconfig.server.json**: Node v18+ hat `Blob`, `fetch`, `FormData` zur Runtime, aber TypeScript braucht die DOM-Types dafür. `"lib": ["ES2022", "DOM"]` in `tsconfig.server.json` löst das.
+16. **`DOM`-Lib in tsconfig.server.json**: Node v18+ hat `Blob`, `fetch`, `FormData` zur Runtime, aber TypeScript braucht die DOM-Types dafür. `"lib": ["ES2022", "DOM"]` in `tsconfig.server.json` löst das.
 
-13. **Multer für multipart**: Express parst keinen multipart-Body. Multer mit `memoryStorage()` ist die einfachste Lösung für moderate Datei-Größen (<15 MB). Bei großen Files (>50 MB) auf Disk-Storage oder Streams umsteigen.
+17. **Multer für multipart**: Express parst keinen multipart-Body. Multer mit `memoryStorage()` ist die einfachste Lösung für moderate Datei-Größen (<15 MB). Bei großen Files (>50 MB) auf Disk-Storage oder Streams umsteigen.
 
 ### Google Drive + Entwicklung
 
-14. **`node_modules` in Google Drive bricht Vite**: Vite-Optimizer macht `rmdir` auf `.vite/deps_temp_*`, Google Drive hat das parallel locked → `EPERM`. Lösung: `cacheDir` auf `os.tmpdir()` setzen.
+18. **`node_modules` in Google Drive bricht Vite**: Vite-Optimizer macht `rmdir` auf `.vite/deps_temp_*`, Google Drive hat das parallel locked → `EPERM`. Lösung: `cacheDir` auf `os.tmpdir()` setzen.
 
-15. **npm-Operationen können fehlschlagen wegen Drive-Sync**: `npm uninstall` oder `npm install` schlagen gelegentlich mit Permission-Fehlern fehl, weil Drive Files lockt. Workaround: `npm install` ohne Cleanup; `node_modules/` wird beim nächsten `npm ci` sauber neu aufgebaut.
+19. **npm-Operationen können fehlschlagen wegen Drive-Sync**: `npm uninstall` oder `npm install` schlagen gelegentlich mit Permission-Fehlern fehl, weil Drive Files lockt. Workaround: `npm install` ohne Cleanup; `node_modules/` wird beim nächsten `npm ci` sauber neu aufgebaut.
 
 ### Library-Versionen
 
-16. **react-resizable-panels v4 ist nicht v2**: Komplett andere API. Auf v2 bleiben.
+20. **react-resizable-panels v4 ist nicht v2**: Komplett andere API. Auf v2 bleiben.
 
-17. **`@uiw/react-codemirror` exposes `onCreateEditor`**: Damit kommt man an die `EditorView`-Instanz für Scroll-Sync und Paste-Handler. Kein offizieller Ref-Forward.
+21. **`@uiw/react-codemirror` exposes `onCreateEditor`**: Damit kommt man an die `EditorView`-Instanz für Scroll-Sync und Paste-Handler. Kein offizieller Ref-Forward.
 
 ### Web-spezifisch
 
-18. **`credentials: "include"` ist Pflicht**: Im fetch-Layer für alle API-Calls — sonst werden Cookies nicht mitgesendet. In Production mit Same-Origin nicht zwingend nötig, aber wir setzen es trotzdem, damit Dev-Setup (Vite 5173 → Express 3000) funktioniert.
+22. **`credentials: "include"` ist Pflicht**: Im fetch-Layer für alle API-Calls — sonst werden Cookies nicht mitgesendet. In Production mit Same-Origin nicht zwingend nötig, aber wir setzen es trotzdem, damit Dev-Setup (Vite 5173 → Express 3000) funktioniert.
 
-19. **`Secure`-Cookie braucht HTTPS**: Beim Internet-Deployment ohne HTTPS scheitert der Login (Cookie kommt nicht zurück), die App zeigt aber nur „nicht angemeldet". Reverse-Proxy mit Cert ist Pflicht.
+23. **`Secure`-Cookie braucht HTTPS**: Beim Internet-Deployment ohne HTTPS scheitert der Login (Cookie kommt nicht zurück), die App zeigt aber nur „nicht angemeldet". Reverse-Proxy mit Cert ist Pflicht.
 
-20. **Caddy `reverse-proxy`-Command**: Macht automatisches HTTPS, wenn `--from` einen Hostnamen (kein `:80`, kein `localhost`) bekommt. Sehr viel einfacher als ein Caddyfile-Mount via `configs:` (das hat in unserer Portainer-Version nicht funktioniert).
+24. **Caddy `reverse-proxy`-Command**: Macht automatisches HTTPS, wenn `--from` einen Hostnamen (kein `:80`, kein `localhost`) bekommt. Sehr viel einfacher als ein Caddyfile-Mount via `configs:` (das hat in unserer Portainer-Version nicht funktioniert).
 
-21. **Vite-Dev-Server `proxy`-Config**: `proxy: { "/api": "http://localhost:3000" }` ist das eine Setting, das du brauchst, damit Browser auf Vite-Port 5173 die API-Calls durchreicht an den separaten Express-Prozess.
+25. **Vite-Dev-Server `proxy`-Config**: `proxy: { "/api": "http://localhost:3000" }` ist das eine Setting, das du brauchst, damit Browser auf Vite-Port 5173 die API-Calls durchreicht an den separaten Express-Prozess.
 
 ### Historisch (Electron-Phase)
 
 Diese Punkte sind nur noch relevant, wenn jemand ein ähnliches Electron-Projekt aufsetzt:
 
-22. **Strapi Token-File-Persistenz auf Disk ist riskant**. Wir hatten in der Electron-Variante `safeStorage` (Windows DPAPI) — verschlüsselt mit User+Machine-Bound-Key. Saubere Lösung, aber benötigt `app.whenReady()` vor erstem Aufruf.
+26. **Strapi Token-File-Persistenz auf Disk ist riskant**. Wir hatten in der Electron-Variante `safeStorage` (Windows DPAPI) — verschlüsselt mit User+Machine-Bound-Key. Saubere Lösung, aber benötigt `app.whenReady()` vor erstem Aufruf.
 
-23. **`vite-plugin-electron` HMR**: Rebuilt Main/Preload bei jeder Änderung an `electron/**`, startet Electron neu. Wenn Änderungen nicht greifen → alter Prozess läuft im Hintergrund (Windows TaskManager prüfen).
+27. **`vite-plugin-electron` HMR**: Rebuilt Main/Preload bei jeder Änderung an `electron/**`, startet Electron neu. Wenn Änderungen nicht greifen → alter Prozess läuft im Hintergrund (Windows TaskManager prüfen).
 
-24. **electron-builder 26 hat `@noble/hashes` ESM-Bug**: `ERR_REQUIRE_ESM`. Auf 24.13.3 pinnen, bis upstream gefixt.
+28. **electron-builder 26 hat `@noble/hashes` ESM-Bug**: `ERR_REQUIRE_ESM`. Auf 24.13.3 pinnen, bis upstream gefixt.
 
-25. **Symlinks brauchen Developer-Mode auf Windows**: electron-builder lädt einen Cache mit macOS-Symlinks (für theoretisches Cross-Build). Ohne Developer-Mode oder Admin-Shell scheitert das Entpacken mit „Cannot create symbolic link".
+29. **Symlinks brauchen Developer-Mode auf Windows**: electron-builder lädt einen Cache mit macOS-Symlinks (für theoretisches Cross-Build). Ohne Developer-Mode oder Admin-Shell scheitert das Entpacken mit „Cannot create symbolic link".
 
 ---
 
@@ -439,6 +506,8 @@ Diese Punkte sind nur noch relevant, wenn jemand ein ähnliches Electron-Projekt
 | Neuer Auth-Endpoint      | `src/api/auth.ts`                 | `server/routes/auth.ts`                              |
 | Neue Upload-Variante     | `src/components/Editor.tsx` o.ä.  | `server/routes/upload.ts`                            |
 | Type-Anpassung           | `src/types.ts`                    | `server/lib/strapi.ts` (in Sync halten!)             |
+| Neues Beitragsfeld       | `src/types.ts` (`PostFields`, `fieldsFromPost`) + `src/components/FieldsPanel.tsx` | `server/lib/strapi.ts` (`PostFields` **und** die Whitelist in `saveDraft`) |
+| Feld-Validierung         | `src/lib/postFields.ts`           | –                                                    |
 
 ### Wie teste ich Änderungen?
 
@@ -455,22 +524,22 @@ Diese Punkte sind nur noch relevant, wenn jemand ein ähnliches Electron-Projekt
 
 ### Gatsby-Repo
 
-Pfad in der Entwicklung war `C:\Users\micro\gatsby\brandeis-academy`. Bei Style-Änderungen dort musst du **manuell** rüberkopieren:
+Die Vorschau rendert seit [ADR-014](#adr-014-vorschau-als-iframe-auf-die-gatsby-site) im iframe auf der Gatsby-Site. **Es gibt nichts mehr manuell zu kopieren** — der frühere Abgleich von `globalStyles.scss`, `blogLayout.module.scss`, `content_style.module.scss` und der highlight.js-Sprachen entfällt ersatzlos.
 
-- `src/styles/globalStyles.scss` → `src/styles/gatsby/globalStyles.scss`
-- `src/styles/blogLayout.module.scss` → `src/styles/gatsby/blogLayout.module.scss`
-- `src/styles/content_style.module.scss` → `src/styles/gatsby/content_style.module.scss`
-- `src/styles/globalDefinitions.scss` → `src/styles/gatsby/globalDefinitions.scss`
-- `src/highlight.js/lib/languages/{abap,cds,bdl}.js` → `src/render/highlight-langs/{abap,cds,bdl}.js`
-  - Achtung: `module.exports = function(hljs)` zu `export default function(hljs)` umschreiben
+Was stattdessen im Gatsby-Repo (`brandeis-academy`) zu dieser Vorschau gehört:
 
-Ein automatisches Sync-Script ist noch nicht implementiert (siehe „Roadmap" unten).
+| Datei                                              | Rolle                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/pages/blog-preview.js`                          | Die Vorschauseite. Nimmt den Entwurf per postMessage entgegen.      |
+| `src/components/blog-templates/default-body.js`      | Artikelkörper Standard — geteilt mit `default-template.js`          |
+| `src/components/blog-templates/cheatsheet-body.js`   | Artikelkörper Cheatsheet                                            |
+| `src/components/blog-templates/newsletter-body.js`   | Artikelkörper Newsletter                                            |
+| `static/_headers`                                    | `frame-ancestors` muss den Editor erlauben                          |
+
+**Beim Ändern eines Templates** ist nichts zu tun, solange die Änderung im jeweiligen `*-body.js` landet — die Vorschau zieht automatisch mit. Ändert sich dagegen die **erwartete Beitragsstruktur** (ein neues Feld, das ein Body liest), muss sie in `src/lib/previewPayload.ts` dieses Repos ergänzt werden; dort steht der Vertrag zwischen beiden Projekten.
 
 ### Roadmap-Ideen (nicht umgesetzt)
 
-- **CSS-Sync-Script** mit Drift-Detection (`scripts/sync-gatsby.mjs`)
 - **Drag-and-Drop-Bild-Upload** aus dem Explorer (gleiche Server-Route wie Paste)
-- **Kategorie-Labels** statt Slugs in der Preview (braucht zusätzliches API-Query mit Localizations)
-- **Frontmatter-Editor** für strukturierte Felder (Title, Excerpt, Author, HeroImage)
 - **Multi-User-Awareness**: Anzeige, wenn ein Kollege denselben Post offen hat (würde Websocket + Server-State brauchen)
 - **Auto-Save** als Draft (alle 30 s, wenn dirty)
