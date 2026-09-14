@@ -1,10 +1,12 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView } from "@codemirror/view";
 import { strapi } from "../api/strapi";
+import { Toolbar } from "./Toolbar";
+import { insertLink, wrapInline } from "../lib/editorCommands";
 import styles from "./Editor.module.scss";
 
 interface Props {
@@ -12,6 +14,29 @@ interface Props {
   onChange: (value: string) => void;
   onCreateView?: (view: EditorView) => void;
 }
+
+/**
+ * Tastenkürzel der Formatierleiste.
+ *
+ * `stopPropagation` ist hier wesentlich, nicht bloß sauber: Die AppShell hört
+ * auf `window` mit und belegt Strg+B mit dem Ein-/Ausblenden der Seitenleiste.
+ * Ohne das Stoppen würde ein Strg+B im Text gleichzeitig fett setzen **und** die
+ * Liste umschalten. Wer im Editor tippt, meint die Formatierung; außerhalb
+ * bleibt das Kürzel der Seitenleiste erhalten.
+ */
+const shortcuts = EditorView.domEventHandlers({
+  keydown(event, view) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+    const key = event.key.toLowerCase();
+    if (key === "b") wrapInline(view, "**");
+    else if (key === "i") wrapInline(view, "*");
+    else if (key === "k") insertLink(view);
+    else return false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  },
+});
 
 const theme = EditorView.theme({
   "&": { height: "100%", fontSize: "14px" },
@@ -49,10 +74,14 @@ function fileFromClipboard(e: ClipboardEvent): File | null {
 
 export function Editor({ value, onChange, onCreateView }: Props) {
   const viewRef = useRef<EditorView | null>(null);
+  // Zusätzlich als State, damit die Toolbar neu rendert, sobald die Sicht da ist —
+  // eine Ref allein löst kein Rendern aus und die Knöpfe blieben deaktiviert.
+  const [view, setView] = useState<EditorView | null>(null);
 
-  function handleCreate(view: EditorView) {
-    viewRef.current = view;
-    onCreateView?.(view);
+  function handleCreate(v: EditorView) {
+    viewRef.current = v;
+    setView(v);
+    onCreateView?.(v);
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
@@ -88,20 +117,23 @@ export function Editor({ value, onChange, onCreateView }: Props) {
 
   return (
     <div className={styles.editor} onPaste={handlePaste}>
-      <CodeMirror
-        value={value}
-        onChange={onChange}
-        height="100%"
-        theme={oneDark}
-        extensions={[markdown({ codeLanguages: languages }), theme, EditorView.lineWrapping]}
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
-          highlightActiveLine: true,
-          highlightActiveLineGutter: true,
-        }}
-        onCreateEditor={handleCreate}
-      />
+      <Toolbar view={view} disabled={false} />
+      <div className={styles.cmWrap}>
+        <CodeMirror
+          value={value}
+          onChange={onChange}
+          height="100%"
+          theme={oneDark}
+          extensions={[markdown({ codeLanguages: languages }), theme, shortcuts, EditorView.lineWrapping]}
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            highlightActiveLine: true,
+            highlightActiveLineGutter: true,
+          }}
+          onCreateEditor={handleCreate}
+        />
+      </div>
     </div>
   );
 }

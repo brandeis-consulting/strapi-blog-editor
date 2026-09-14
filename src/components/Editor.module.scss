@@ -1,3 +1,9 @@
+// Spalte aus Formatierleiste und Editorfläche.
+//
+// Vorher war .editor keine Flex-Box; die Regel `> div { height: 100% }` zog
+// jedes direkte Kind auf volle Höhe. Mit der Toolbar als zusätzlichem Kind
+// hätte das bedeutet: Leiste 100% hoch, Editor darunter aus dem Bild. Deshalb
+// steckt CodeMirror jetzt in einer eigenen Hülle, die den Rest bekommt.
 .editor {
   position: relative;
   flex: 1 1 0;
@@ -5,9 +11,20 @@
   width: 100%;
   background: #282c34;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
-  // @uiw/react-codemirror wraps CodeMirror in a few nested divs.
-  // Stretch them all so the inner .cm-scroller has a concrete height to scroll within.
+// `flex: 1 1 0` UND `min-height: 0` sind beide nötig: Ohne min-height wächst
+// die Hülle mit dem Inhalt, statt zu scrollen (siehe ARCHITECTURE.md, Punkt 10).
+.cmWrap {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+
+  // @uiw/react-codemirror schachtelt CodeMirror in mehrere divs. Alle strecken,
+  // damit der innere .cm-scroller eine konkrete Höhe zum Scrollen hat.
   > div,
   :global(.cm-theme),
   :global(.cm-editor) {
