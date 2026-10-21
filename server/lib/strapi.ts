@@ -151,10 +151,10 @@ interface SingleEnvelope {
 export class StrapiClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly token: string,
+    private readonly adminJwt: string,
   ) {
     if (!baseUrl) throw new Error("STRAPI_URL is missing");
-    if (!token) throw new Error("STRAPI_TOKEN is missing");
+    if (!adminJwt) throw new Error("Admin JWT is missing");
   }
 
   private async request<T>(
@@ -165,7 +165,7 @@ export class StrapiClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${this.adminJwt}`,
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -510,7 +510,7 @@ export class StrapiClient {
 
     const res = await fetch(`${this.baseUrl}/upload`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${this.token}` },
+      headers: { Authorization: `Bearer ${this.adminJwt}` },
       body: form,
     });
     if (res.status === 401) {
