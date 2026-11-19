@@ -1,19 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { buildPreviewPost } from "../lib/previewPayload";
-import type { AuthorOption, CategoryOption, PostDetail, PostFields } from "../types";
+import { useEffect, useState } from "react";
 import styles from "./Preview.module.scss";
 
 interface Props {
-  post: PostDetail | null;
-  fields: PostFields | null;
-  categories: CategoryOption[];
-  authors: AuthorOption[];
-  heroUrl: string | null;
-  draftContent: string;
   /** URL der Vorschauseite im Gatsby-Projekt (/blog-preview). */
   previewUrl: string | null;
-  /** Meldet die iframe-Referenz nach oben, für den Scroll-Sync. */
-  onFrameRef?: (frame: HTMLIFrameElement | null) => void;
+  /** Es gibt einen Beitrag, den die Vorschau zeigen kann. */
+  hasPost: boolean;
+  /** Die Vorschauseite hat sich gemeldet. */
+  ready: boolean;
+  /** Hinweis, solange kein Beitrag da ist. */
+  emptyHint: string;
+  /** Meldet die iframe-Referenz nach oben — dort sitzt die Verbindung. */
+  onFrameRef: (frame: HTMLIFrameElement | null) => void;
 }
 
 /**
@@ -24,30 +22,12 @@ interface Props {
  * kann die Vorschau nicht mehr veralten — weder bei CSS-Änderungen noch bei
  * neuen Templates. Der Preis: die Vorschau braucht eine erreichbare Gatsby-Seite.
  *
- * Der Entwurf geht bei jedem Tastendruck per postMessage hinüber; gespeichert
- * werden muss dafür nichts.
+ * Diese Komponente ist nur der Rahmen. Wer dem iframe den Entwurf schickt,
+ * hängt davon ab, wo er sitzt: im Editor (usePreviewLink) oder im eigenen
+ * Vorschaufenster (PreviewWindow).
  */
-export function Preview({
-  post, fields, categories, authors, heroUrl, draftContent, previewUrl, onFrameRef,
-}: Props) {
-  const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const [ready, setReady] = useState(false);
+export function Preview({ previewUrl, hasPost, ready, emptyHint, onFrameRef }: Props) {
   const [slow, setSlow] = useState(false);
-
-  const origin = previewUrl ? new URL(previewUrl, window.location.href).origin : null;
-
-  // Auf das Lebenszeichen der Vorschauseite warten. Vorher gesendete Nachrichten
-  // würden ins Leere laufen, weil ihr Listener noch nicht steht.
-  useEffect(() => {
-    if (!origin) return;
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== origin) return;
-      const msg = event.data as { type?: string } | null;
-      if (msg?.type === "preview-ready") setReady(true);
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [origin]);
 
   // Hinweis einblenden, wenn sich die Seite nicht meldet — typischerweise ist
   // dann die Gatsby-Site nicht erreichbar oder frame-ancestors verbietet uns.
@@ -56,19 +36,6 @@ export function Preview({
     const t = setTimeout(() => setSlow(true), 6000);
     return () => clearTimeout(t);
   }, [ready, previewUrl]);
-
-  // Entwurf hinüberschicken, sobald sich etwas ändert.
-  useEffect(() => {
-    if (!ready || !origin || !post || !fields) return;
-    frameRef.current?.contentWindow?.postMessage(
-      {
-        type: "preview-update",
-        post: buildPreviewPost(post, fields, { categories, authors, heroUrl }),
-        content: draftContent,
-      },
-      origin,
-    );
-  }, [ready, origin, post, fields, categories, authors, heroUrl, draftContent]);
 
   if (!previewUrl) {
     return (
@@ -80,12 +47,8 @@ export function Preview({
 
   return (
     <div className={styles.frameWrap}>
-      {!post && (
-        <div className={styles.placeholderOverlay}>
-          Wähle links einen Blogpost zum Bearbeiten.
-        </div>
-      )}
-      {post && !ready && (
+      {!hasPost && <div className={styles.placeholderOverlay}>{emptyHint}</div>}
+      {hasPost && !ready && (
         <div className={styles.placeholderOverlay}>
           {slow ? (
             <>
@@ -103,10 +66,7 @@ export function Preview({
         </div>
       )}
       <iframe
-        ref={(el) => {
-          frameRef.current = el;
-          onFrameRef?.(el);
-        }}
+        ref={onFrameRef}
         src={previewUrl}
         title="Blog-Vorschau"
         className={styles.frame}

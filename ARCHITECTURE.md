@@ -29,6 +29,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Sidebar **ausblendbar / kollabierbar**
 - Panelbreiten **per Drag resizable**, Layout-State persistiert (über `react-resizable-panels` `autoSaveId`)
 - **Geänderte Wörter in der Preview hervorheben** (Diff-Visualisierung, toggle-bar)
+- **Vorschau in eigenem Browserfenster** für den zweiten Monitor — mit Live-Aktualisierung und Scroll-Sync wie angedockt (ADR-015)
 - **Buffer pro Post**: Wechsel zwischen Posts verliert keine ungespeicherten Änderungen
 - **Marker in der Liste** für Posts mit unsaved changes
 - **Verwerfen-Button** zum Zurücksetzen eines Drafts auf den Server-Stand
@@ -411,9 +412,34 @@ Dafür wurde in Gatsby der Artikelkörper je Template herausgelöst (`default-bo
 - ✗ **Ohne erreichbare Gatsby-Site keine Vorschau.** Bewusst kein lokaler Fallback: ein veralteter Nachbau wäre schlimmer als eine ehrliche Fehlermeldung, weil er still Falsches zeigte
 - ✗ Template- und CSS-Änderungen erscheinen erst nach dem nächsten Site-Build. Für die Redaktion irrelevant — der Editor verwaltet Inhalte, nicht Templates
 - ✗ Zwei neue Kopplungen zwischen den Repos: `frame-ancestors` in `static/_headers` muss den Editor erlauben, und `src/lib/previewPayload.ts` muss zur Beitragsstruktur der Bodies passen
-- ✗ Scroll-Sync läuft über Nachrichten statt direkt (`useIframeScrollSync`), weil das iframe cross-origin ist
+- ✗ Scroll-Sync läuft über Nachrichten statt direkt (`useIframeScrollSync`), weil das iframe cross-origin ist. Die Vorschauseite meldet auch Bewegungen zurück, die der Editor selbst ausgelöst hat; der Hook ignoriert dieses Echo für eine kurze Ruhezeit
 
 **Sicherheit:** Beide Seiten prüfen `event.origin` und senden nie an `"*"`. Die Vorschauseite akzeptiert nur die Origins des Editors (plus ihren eigenen), der Editor nur den Origin der Vorschau. `frame-src` in der Editor-CSP wird aus `PREVIEW_URL` abgeleitet, damit beides nicht auseinanderlaufen kann.
+
+### ADR-015: Abgekoppelte Vorschau als zweites Editor-Fenster
+
+**Kontext:** Mit zwei Monitoren soll der Editor den einen und die Vorschau den anderen füllen.
+
+**Verworfene Alternative — die Gatsby-Seite direkt als Popup öffnen.** Naheliegend, scheitert aber doppelt. Helmet setzt `Cross-Origin-Opener-Policy: same-origin`; ein Popup auf einem fremden Origin landet damit in einer eigenen Browsing-Context-Gruppe, und das Fenster-Handle, über das `postMessage` laufen müsste, ist tot. Außerdem spricht `blog-preview.js` mit `window.parent` — für ein Popup müsste die Seite `window.opener` lernen. Beides hieße: Sicherheits-Header lockern **und** das Gatsby-Repo anfassen.
+
+**Entscheidung:** Das Vorschaufenster ist eine zweite Ansicht des Editors selbst (`/preview-window`, `src/components/PreviewWindow.tsx`), die nur den Vorschau-iframe enthält. Editor und Vorschaufenster liegen auf demselben Origin und reden über einen **BroadcastChannel** (`src/lib/previewChannel.ts`); das Fenster reicht die Nachrichten per `postMessage` an seinen iframe weiter und die Antworten zurück.
+
+```
+Editor-Fenster ──BroadcastChannel──▶ /preview-window ──postMessage──▶ iframe /blog-preview
+               ◀────────────────────                 ◀───────────────
+```
+
+Im Editor versteckt `usePreviewLink` den Unterschied: Entwurf und Scroll-Sync senden an den „Link" und wissen nicht, ob die Vorschau angedockt ist oder im eigenen Fenster läuft.
+
+**Konsequenzen:**
+- ✓ **Im Gatsby-Repo ändert sich nichts.** Die Vorschauseite steckt weiter in einem iframe des Editors; `frame-ancestors`, Origin-Prüfung und Nachrichtenvertrag gelten unverändert
+- ✓ COOP und CSP bleiben, wie sie sind — der BroadcastChannel braucht kein `window.opener`
+- ✓ Übersteht Neuladen auf beiden Seiten: der Editor fragt beim Start nach offenen Fenstern (`editor-hello`), das Fenster meldet sich (`window-open`) und bekommt den Entwurf neu
+- ✓ Solange das Fenster offen ist, entfällt das Vorschau-Panel und der Editor bekommt die Breite. Die Panels haben `id` und `order`, deshalb merkt sich `react-resizable-panels` die Breiten für beide Kombinationen getrennt
+- ✗ Beide Fenster müssen im selben Browserprofil laufen — der BroadcastChannel reicht nicht weiter
+- ✗ `/preview-window` wird ohne Login ausgeliefert. Unkritisch: die Seite selbst kennt keinen Beitrag, der Entwurf kommt nur über den Kanal aus einem angemeldeten Editor-Fenster
+
+**Woran der Editor merkt, dass das Fenster weg ist:** Das Fenster hält einen **Web Lock**, solange es lebt; der Editor fordert denselben Lock an und bekommt ihn erst, wenn das Fenster verschwunden ist. Das ist verlässlicher als die Abschiedsnachricht bei `pagehide` allein — die gibt es zusätzlich, sie kommt aber bei einem Absturz nicht mehr an.
 
 ## Lessons Learned
 
@@ -508,6 +534,7 @@ Diese Punkte sind nur noch relevant, wenn jemand ein ähnliches Electron-Projekt
 | Type-Anpassung           | `src/types.ts`                    | `server/lib/strapi.ts` (in Sync halten!)             |
 | Neues Beitragsfeld       | `src/types.ts` (`PostFields`, `fieldsFromPost`) + `src/components/FieldsPanel.tsx` | `server/lib/strapi.ts` (`PostFields` **und** die Whitelist in `saveDraft`) |
 | Feld-Validierung         | `src/lib/postFields.ts`           | –                                                    |
+| Nachricht an die Vorschau | `src/lib/previewChannel.ts` (Typen) + `src/hooks/usePreviewLink.ts`; die Gegenseite ist `blog-preview.js` im Gatsby-Repo | – |
 
 ### Wie teste ich Änderungen?
 
