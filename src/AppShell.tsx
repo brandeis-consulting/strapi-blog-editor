@@ -24,6 +24,8 @@ import { describeFieldChanges, validatePostFields } from "./lib/postFields";
 import { usePosts } from "./hooks/usePosts";
 import { useDebounced } from "./hooks/useDebounced";
 import { useIframeScrollSync } from "./hooks/useIframeScrollSync";
+import { usePreviewLink } from "./hooks/usePreviewLink";
+import { buildPreviewPost } from "./lib/previewPayload";
 import { PostList } from "./components/PostList";
 import { Editor } from "./components/Editor";
 import { Preview } from "./components/Preview";
@@ -79,7 +81,6 @@ export function AppShell({ user, onLogout }: Props) {
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
   const sidebarRef = useRef<ImperativePanelHandle>(null);
-  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Vorschau-URL kommt zur Laufzeit vom eigenen Server (siehe /api/config),
   // damit ein Wechsel der Gatsby-Instanz kein neues Docker-Image braucht.
@@ -121,7 +122,8 @@ export function AppShell({ user, onLogout }: Props) {
     }
   }, [previewUrl]);
 
-  useIframeScrollSync(editorView, previewFrameRef, previewOrigin, scrollSync);
+  const preview = usePreviewLink(previewOrigin);
+  useIframeScrollSync(editorView, preview.link, scrollSync);
 
   useEffect(() => {
     strapi
@@ -178,6 +180,22 @@ export function AppShell({ user, onLogout }: Props) {
   const blockingIssues = issues.filter((i) => i.blocking);
 
   const heroUrl = fields?.heroImageId != null ? heroUrls.get(fields.heroImageId) ?? null : null;
+
+  const previewPost = useMemo(
+    () =>
+      activePost && fields
+        ? buildPreviewPost(activePost, fields, { categories, authors, heroUrl })
+        : null,
+    [activePost, fields, categories, authors, heroUrl],
+  );
+
+  // Entwurf hinüberschicken, sobald sich etwas ändert — gespeichert werden muss
+  // dafür nichts. `resync` zählt hoch, wenn ein Vorschaufenster neu dazukommt.
+  const { link: previewLink, live: previewLive, resync: previewResync } = preview;
+  useEffect(() => {
+    if (!previewLive || !previewPost) return;
+    previewLink.send({ type: "preview-update", post: previewPost, content: previewMarkdown });
+  }, [previewLink, previewLive, previewResync, previewPost, previewMarkdown]);
 
   function rememberHeroUrl(id: number | null | undefined, url: string | undefined): void {
     if (id == null || !url) return;
@@ -472,6 +490,19 @@ export function AppShell({ user, onLogout }: Props) {
         </button>
         <button
           type="button"
+          className={preview.detached ? styles.toggleBtnActive : styles.toggleBtn}
+          onClick={preview.detached ? preview.closeWindow : preview.openWindow}
+          disabled={!previewUrl || !preview.canDetach}
+          title={
+            preview.detached
+              ? "Vorschau wieder im Editor andocken"
+              : "Vorschau in eigenem Fenster öffnen (z. B. für den zweiten Monitor)"
+          }
+        >
+          ⧉ Fenster
+        </button>
+        <button
+          type="button"
           className={styles.toggleBtn}
           onClick={onLogout}
           title="Abmelden"
@@ -575,23 +606,24 @@ export function AppShell({ user, onLogout }: Props) {
             )}
           </div>
         </Panel>
-        <PanelResizeHandle className={styles.handle} />
-        <Panel id="preview" order={3} defaultSize={41} minSize={20}>
-          <div className={styles.pane}>
-            <Preview
-              post={activePost}
-              fields={fields}
-              categories={categories}
-              authors={authors}
-              heroUrl={heroUrl}
-              draftContent={previewMarkdown}
-              previewUrl={previewUrl}
-              onFrameRef={(el) => {
-                previewFrameRef.current = el;
-              }}
-            />
-          </div>
-        </Panel>
+        {/* Läuft die Vorschau im eigenen Fenster, gehört der Platz dem Editor.
+            Die Panels merken sich ihre Breiten je Kombination getrennt. */}
+        {!preview.detached && (
+          <>
+            <PanelResizeHandle className={styles.handle} />
+            <Panel id="preview" order={3} defaultSize={41} minSize={20}>
+              <div className={styles.pane}>
+                <Preview
+                  previewUrl={previewUrl}
+                  hasPost={Boolean(activePost)}
+                  ready={preview.frameReady}
+                  emptyHint="Wähle links einen Blogpost zum Bearbeiten."
+                  onFrameRef={preview.setFrame}
+                />
+              </div>
+            </Panel>
+          </>
+        )}
       </PanelGroup>
 
       <TranslateDialog

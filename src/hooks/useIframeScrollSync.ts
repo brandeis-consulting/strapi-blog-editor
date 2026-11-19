@@ -1,69 +1,72 @@
 import { useEffect } from "react";
-import type { RefObject } from "react";
 import type { EditorView } from "@codemirror/view";
+import type { PreviewLink } from "./usePreviewLink";
+
+/**
+ * So lange nach dem letzten eigenen Scroll-Ereignis gehört die Bewegung noch
+ * der Seite, die sie angestoßen hat.
+ */
+const RELEASE_MS = 120;
 
 /**
  * Proportionaler Scroll-Sync zwischen CodeMirror und der Vorschau im iframe.
  *
  * Ersetzt useScrollSync für die iframe-Vorschau: die Vorschauseite liegt auf
  * einem anderen Origin, ihr `scrollTop` ist vom Editor aus weder lesbar noch
- * schreibbar. Beide Richtungen laufen deshalb über postMessage — der Editor
- * schickt ein Verhältnis (0…1), die Seite meldet ihres zurück.
+ * schreibbar. Beide Richtungen laufen deshalb über Nachrichten — der Editor
+ * schickt ein Verhältnis (0…1), die Seite meldet ihres zurück. Der Weg dorthin
+ * ist Sache des PreviewLink: direkt in den angedockten iframe oder über das
+ * Vorschaufenster.
  *
- * Die Ein-Frame-Sperre ist dieselbe wie in useScrollSync und aus demselben
- * Grund nötig: ohne sie schaukelt sich Scroll → Nachricht → Scroll auf.
- * Über die Nachrichtengrenze hinweg ist sie sogar wichtiger, weil die Antwort
- * asynchron zurückkommt.
+ * Die Sperre ist aus demselben Grund nötig wie in useScrollSync: ohne sie
+ * schaukelt sich Scroll → Nachricht → Scroll auf. Die Vorschauseite meldet
+ * auch Bewegungen zurück, die wir selbst ausgelöst haben, und dieses Echo
+ * kommt asynchron — über das Vorschaufenster mit zwei Stationen mehr. Die
+ * Sperre hält deshalb eine kurze Ruhezeit lang statt nur einen Frame, sonst
+ * zöge ein verspätetes Echo den Editor beim Scrollen zurück.
  */
 export function useIframeScrollSync(
   editorView: EditorView | null,
-  iframeRef: RefObject<HTMLIFrameElement | null>,
-  targetOrigin: string | null,
+  link: PreviewLink,
   enabled: boolean,
 ) {
   useEffect(() => {
-    if (!enabled || !targetOrigin) return;
+    if (!enabled) return;
     const editor = editorView?.scrollDOM;
     if (!editor) return;
 
     let activeSource: "editor" | "preview" | null = null;
-    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const release = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
         activeSource = null;
-      });
+      }, RELEASE_MS);
     };
 
     function onEditorScroll() {
       if (!editor || activeSource === "preview") return;
       activeSource = "editor";
       const max = editor.scrollHeight - editor.clientHeight;
-      iframeRef.current?.contentWindow?.postMessage(
-        { type: "preview-scroll-to", ratio: max > 0 ? editor.scrollTop / max : 0 },
-        targetOrigin!,
-      );
+      link.send({ type: "preview-scroll-to", ratio: max > 0 ? editor.scrollTop / max : 0 });
       release();
     }
 
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== targetOrigin) return;
-      const msg = event.data as { type?: string; ratio?: number } | null;
-      if (!msg || msg.type !== "preview-scroll" || typeof msg.ratio !== "number") return;
+    const unsubscribe = link.subscribe((msg) => {
+      if (msg.type !== "preview-scroll" || typeof msg.ratio !== "number") return;
       if (!editor || activeSource === "editor") return;
       activeSource = "preview";
       const max = editor.scrollHeight - editor.clientHeight;
       if (max > 0) editor.scrollTop = max * msg.ratio;
       release();
-    }
+    });
 
     editor.addEventListener("scroll", onEditorScroll, { passive: true });
-    window.addEventListener("message", onMessage);
     return () => {
       editor.removeEventListener("scroll", onEditorScroll);
-      window.removeEventListener("message", onMessage);
-      cancelAnimationFrame(frame);
+      unsubscribe();
+      clearTimeout(timer);
     };
-  }, [editorView, iframeRef, targetOrigin, enabled]);
+  }, [editorView, link, enabled]);
 }
