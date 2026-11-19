@@ -29,6 +29,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Sidebar **ausblendbar / kollabierbar**
 - Panelbreiten **per Drag resizable**, Layout-State persistiert (über `react-resizable-panels` `autoSaveId`)
 - **Geänderte Wörter in der Preview hervorheben** (Diff-Visualisierung, toggle-bar)
+- **Schriftgröße im Editor einstellbar** (8–48 px, im localStorage gemerkt)
 - **Vorschau in eigenem Browserfenster** für den zweiten Monitor — mit Live-Aktualisierung und Scroll-Sync wie angedockt (ADR-015)
 - **Buffer pro Post**: Wechsel zwischen Posts verliert keine ungespeicherten Änderungen
 - **Marker in der Liste** für Posts mit unsaved changes
@@ -438,6 +439,8 @@ Im Editor versteckt `usePreviewLink` den Unterschied: Entwurf und Scroll-Sync se
 - ✓ Solange das Fenster offen ist, entfällt das Vorschau-Panel und der Editor bekommt die Breite. Die Panels haben `id` und `order`, deshalb merkt sich `react-resizable-panels` die Breiten für beide Kombinationen getrennt
 - ✗ Beide Fenster müssen im selben Browserprofil laufen — der BroadcastChannel reicht nicht weiter
 - ✗ `/preview-window` wird ohne Login ausgeliefert. Unkritisch: die Seite selbst kennt keinen Beitrag, der Entwurf kommt nur über den Kanal aus einem angemeldeten Editor-Fenster
+
+**Fensterposition:** Das Vorschaufenster schreibt Position und Größe einmal pro Sekunde in den localStorage (`src/lib/previewWindowBounds.ts`) — für das Verschieben eines Fensters gibt es kein Ereignis. Beim nächsten Öffnen gibt der Editor die Werte `window.open` mit. Das reicht nicht für den zweiten Monitor: **Chromium setzt ein Fenster ohne die Berechtigung „Fensterverwaltung" immer auf den Bildschirm des Öffners**, egal welche Koordinaten es bekommt. Liegt die gemerkte Position auf einem anderen Bildschirm, ruft der Editor deshalb nach dem Öffnen `getScreenDetails()` auf (beim ersten Mal fragt der Browser nach) und schiebt das Fenster danach mit `moveTo` hinüber. Die Reihenfolge ist Absicht: erst öffnen, dann fragen — ein `window.open` nach einer lange offenen Rückfrage würde der Popup-Blocker schlucken. Wird die Berechtigung abgelehnt, bleibt das Fenster auf dem Bildschirm des Editors.
 
 **Woran der Editor merkt, dass das Fenster weg ist:** Das Fenster hält einen **Web Lock**, solange es lebt; der Editor fordert denselben Lock an und bekommt ihn erst, wenn das Fenster verschwunden ist. Das ist verlässlicher als die Abschiedsnachricht bei `pagehide` allein — die gibt es zusätzlich, sie kommt aber bei einem Absturz nicht mehr an.
 

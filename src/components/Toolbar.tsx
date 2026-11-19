@@ -1,10 +1,15 @@
+import { useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { CURSOR, insertBlock, insertLink, toggleLinePrefix, wrapInline } from "../lib/editorCommands";
+import { FONT_SIZE_MAX, FONT_SIZE_MIN } from "../lib/editorFontSize";
 import styles from "./Toolbar.module.scss";
 
 interface Props {
   view: EditorView | null;
   disabled: boolean;
+  /** Schriftgröße des Editors in Pixel. */
+  fontSize: number;
+  onFontSizeChange: (value: number) => void;
 }
 
 /**
@@ -66,6 +71,68 @@ const BLOCKS: Array<{ group: string; label: string; hint: string; snippet: strin
 ];
 
 /**
+ * Schriftgröße des Editors: schrittweise über die Knöpfe oder frei als Zahl.
+ *
+ * Das Feld führt beim Tippen einen eigenen Entwurf. Sonst würde schon die
+ * erste Ziffer von „16" als „1" gelesen, auf die Untergrenze gezogen und
+ * zurück ins Feld geschrieben — die zweite Ziffer landete dann hinter einer
+ * „8". Übernommen wird ein Wert, sobald er innerhalb der Grenzen liegt.
+ */
+function FontSizeControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const step = (delta: number) => (e: React.MouseEvent) => {
+    // Wie bei den Formatierknöpfen: der Fokus bleibt, wo er ist.
+    e.preventDefault();
+    setDraft(null);
+    onChange(value + delta);
+  };
+
+  return (
+    <span className={styles.sizeGroup}>
+      <button
+        type="button"
+        className={styles.btn}
+        title="Schrift im Editor kleiner"
+        disabled={value <= FONT_SIZE_MIN}
+        onMouseDown={step(-1)}
+      >
+        A−
+      </button>
+      <input
+        type="number"
+        className={styles.size}
+        min={FONT_SIZE_MIN}
+        max={FONT_SIZE_MAX}
+        step={1}
+        value={draft ?? String(value)}
+        title={`Schriftgröße im Editor in Pixel (${FONT_SIZE_MIN}–${FONT_SIZE_MAX})`}
+        aria-label="Schriftgröße im Editor in Pixel"
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          const n = Number(text);
+          if (text !== "" && n >= FONT_SIZE_MIN && n <= FONT_SIZE_MAX) onChange(n);
+        }}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      <button
+        type="button"
+        className={styles.btn}
+        title="Schrift im Editor größer"
+        disabled={value >= FONT_SIZE_MAX}
+        onMouseDown={step(1)}
+      >
+        A+
+      </button>
+    </span>
+  );
+}
+
+/**
  * Formatierleiste über dem Markdown-Editor.
  *
  * Bewusst ohne Icon-Bibliothek: ein paar Zeichen und Kürzel tun es, und eine
@@ -74,7 +141,7 @@ const BLOCKS: Array<{ group: string; label: string; hint: string; snippet: strin
  * Nach jedem Befehl geht der Fokus zurück in den Editor (siehe editorCommands) —
  * sonst müsste man nach jedem Knopfdruck erst wieder hineinklicken.
  */
-export function Toolbar({ view, disabled }: Props) {
+export function Toolbar({ view, disabled, fontSize, onFontSizeChange }: Props) {
   const off = disabled || !view;
 
   const btn = (label: string, title: string, action: (v: EditorView) => void, extra?: string) => (
@@ -121,6 +188,8 @@ export function Toolbar({ view, disabled }: Props) {
       {btn("―", "Trennlinie", (v) => insertBlock(v, "---"))}
 
       <span className={styles.sep} />
+
+      <FontSizeControl value={fontSize} onChange={onFontSizeChange} />
 
       <select
         className={styles.select}
