@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { strapi } from "../api/strapi";
 import {
   PREVIEW_WINDOW_LOCK,
+  PREVIEW_WINDOW_NAME,
   openPreviewChannel,
   type FromPreviewMessage,
   type ToPreviewMessage,
 } from "../lib/previewChannel";
 import type { PreviewUpdateMessage } from "../lib/previewPayload";
+import { currentWindowBounds, saveWindowBounds } from "../lib/previewWindowBounds";
 import { Preview } from "./Preview";
 
 const TITLE = "Vorschau — Brandeis Blog Editor";
@@ -32,6 +34,26 @@ export function PreviewWindow() {
       .getConfig()
       .then((c) => setPreviewUrl(c.previewUrl))
       .catch(() => setPreviewUrl(null));
+  }, []);
+
+  // Lage des Fensters merken, damit es beim nächsten Mal wieder dort aufgeht.
+  // Für das Verschieben eines Fensters gibt es kein Ereignis, deshalb wird
+  // nachgesehen statt zugehört.
+  useEffect(() => {
+    // Nur das vom Editor geöffnete Fenster zählt. Wer die Adresse von Hand in
+    // einem Tab öffnet, soll nicht die Lage seines Browserfensters hinterlegen.
+    if (window.name !== PREVIEW_WINDOW_NAME) return;
+    let last = "";
+    const timer = setInterval(() => {
+      // Ein minimiertes Fenster meldet Fantasiekoordinaten.
+      if (document.visibilityState !== "visible") return;
+      const bounds = currentWindowBounds();
+      const key = JSON.stringify(bounds);
+      if (key === last) return;
+      last = key;
+      saveWindowBounds(bounds);
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const origin = useMemo(() => {

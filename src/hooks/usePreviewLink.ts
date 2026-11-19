@@ -8,6 +8,7 @@ import {
   type PreviewChannel,
   type ToPreviewMessage,
 } from "../lib/previewChannel";
+import { loadWindowBounds, moveToSavedScreen, windowFeatures } from "../lib/previewWindowBounds";
 
 /**
  * Der Draht zur Vorschauseite — egal, ob sie gerade im Editor angedockt ist
@@ -120,16 +121,16 @@ export function usePreviewLink(origin: string | null) {
   const link = useMemo<PreviewLink>(() => ({ send, subscribe }), [send, subscribe]);
 
   const openWindow = useCallback(() => {
-    const win = window.open(
-      PREVIEW_WINDOW_PATH,
-      PREVIEW_WINDOW_NAME,
-      "popup,width=1100,height=900",
-    );
+    // Dort öffnen, wo das Fenster zuletzt stand — in der Regel der zweite Monitor.
+    const bounds = loadWindowBounds();
+    const win = window.open(PREVIEW_WINDOW_PATH, PREVIEW_WINDOW_NAME, windowFeatures(bounds));
     if (!win) {
       window.alert(
         "Der Browser hat das Vorschaufenster blockiert. Bitte Popups für diese Seite erlauben.",
       );
+      return;
     }
+    if (bounds) void moveToSavedScreen(win, bounds);
   }, []);
 
   const closeWindow = useCallback(() => {
