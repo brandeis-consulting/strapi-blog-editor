@@ -15,6 +15,7 @@ Schneller Markdown-Editor für Brandeis-Strapi-Blogposts mit pixelgleicher Live-
 - Trennung von „Nur Entwurf speichern" und „Veröffentlichen"
 - Neue Posts anlegen (Titel + Slug + Content)
 - Scroll-Sync zwischen Editor und Preview, resizable Panels
+- Schriftgröße im Editor frei einstellbar (`A−` / Zahlenfeld / `A+` in der Formatierleiste), pro Browser gemerkt
 - Vorschau auf Wunsch in einem eigenen Browserfenster (Knopf „⧉ Fenster") — für die Arbeit mit zwei Monitoren. Das Fenster merkt sich Position und Größe; Chrome und Edge fragen dafür einmalig nach der Berechtigung „Fensterverwaltung"
 
 ## Entwicklung (lokal)

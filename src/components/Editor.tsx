@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
@@ -7,6 +7,7 @@ import { EditorView } from "@codemirror/view";
 import { strapi } from "../api/strapi";
 import { Toolbar } from "./Toolbar";
 import { insertLink, wrapInline } from "../lib/editorCommands";
+import { clampFontSize, loadFontSize, saveFontSize } from "../lib/editorFontSize";
 import styles from "./Editor.module.scss";
 
 interface Props {
@@ -39,7 +40,7 @@ const shortcuts = EditorView.domEventHandlers({
 });
 
 const theme = EditorView.theme({
-  "&": { height: "100%", fontSize: "14px" },
+  "&": { height: "100%" },
   ".cm-scroller": { fontFamily: "'JetBrains Mono', Consolas, monospace", lineHeight: "1.5" },
 });
 
@@ -77,6 +78,22 @@ export function Editor({ value, onChange, onCreateView }: Props) {
   // Zusätzlich als State, damit die Toolbar neu rendert, sobald die Sicht da ist —
   // eine Ref allein löst kein Rendern aus und die Knöpfe blieben deaktiviert.
   const [view, setView] = useState<EditorView | null>(null);
+
+  const [fontSize, setFontSize] = useState(loadFontSize);
+  // Die Schriftgröße ist ein eigenes kleines Thema, das bei jeder Änderung neu
+  // entsteht. So erfährt CodeMirror davon und misst seine Zeilenhöhen neu —
+  // eine von außen per CSS verstellte Größe ließe Cursor und Markierung an der
+  // alten Stelle stehen.
+  const sizeTheme = useMemo(
+    () => EditorView.theme({ "&": { fontSize: `${fontSize}px` } }),
+    [fontSize],
+  );
+
+  function changeFontSize(value: number) {
+    const next = clampFontSize(value);
+    setFontSize(next);
+    saveFontSize(next);
+  }
 
   function handleCreate(v: EditorView) {
     viewRef.current = v;
@@ -117,14 +134,20 @@ export function Editor({ value, onChange, onCreateView }: Props) {
 
   return (
     <div className={styles.editor} onPaste={handlePaste}>
-      <Toolbar view={view} disabled={false} />
+      <Toolbar view={view} disabled={false} fontSize={fontSize} onFontSizeChange={changeFontSize} />
       <div className={styles.cmWrap}>
         <CodeMirror
           value={value}
           onChange={onChange}
           height="100%"
           theme={oneDark}
-          extensions={[markdown({ codeLanguages: languages }), theme, shortcuts, EditorView.lineWrapping]}
+          extensions={[
+            markdown({ codeLanguages: languages }),
+            theme,
+            sizeTheme,
+            shortcuts,
+            EditorView.lineWrapping,
+          ]}
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,

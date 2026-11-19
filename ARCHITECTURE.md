@@ -29,6 +29,7 @@ Entstanden iterativ während der Entwicklung. In ungefährer Implementierungsrei
 - Sidebar **ausblendbar / kollabierbar**
 - Panelbreiten **per Drag resizable**, Layout-State persistiert (über `react-resizable-panels` `autoSaveId`)
 - **Geänderte Wörter in der Preview hervorheben** (Diff-Visualisierung, toggle-bar)
+- **Schriftgröße im Editor einstellbar** (8–48 px, im localStorage gemerkt)
 - **Vorschau in eigenem Browserfenster** für den zweiten Monitor — mit Live-Aktualisierung und Scroll-Sync wie angedockt (ADR-015)
 - **Buffer pro Post**: Wechsel zwischen Posts verliert keine ungespeicherten Änderungen
 - **Marker in der Liste** für Posts mit unsaved changes

@@ -54,6 +54,30 @@
   flex: 0 0 auto;
 }
 
+// Schriftgröße: zwei Knöpfe um ein Zahlenfeld.
+.sizeGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 0 0 auto;
+}
+
+.size {
+  width: 3.4rem;
+  height: 1.75rem;
+  padding: 0 0.2rem 0 0.4rem;
+  border: 1px solid #3a404b;
+  border-radius: 0.3rem;
+  background: #2c313a;
+  color: #abb2bf;
+  font-size: 0.8rem;
+  font-family: inherit;
+  text-align: center;
+
+  &:hover { color: #fff; border-color: #4a5262; }
+  &:focus-visible { outline: 2px solid #e46c0a; outline-offset: -1px; color: #fff; }
+}
+
 .select {
   margin-left: auto;
   height: 1.75rem;
